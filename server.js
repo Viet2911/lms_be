@@ -63,9 +63,6 @@ app.use('/api', routes);
 
 // Health check
 app.get('/', (req, res) => {
-  headers: {
-    Authorization: `Bearer ${localStorage.getItem('token')}`
-  }
   res.json({
     message: 'LMS API Server',
     version: '3.0.0',
