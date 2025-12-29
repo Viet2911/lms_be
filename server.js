@@ -8,7 +8,8 @@ import rateLimit from 'express-rate-limit';
 import routes from './routes/index.js';
 import errorHandler from './middleware/errorHandler.js';
 import './services/cronService.js';
-
+import { config } from 'dotenv';
+config();
 const app = express();
 
 // Security Headers
@@ -40,7 +41,7 @@ app.use('/api/auth/login', authLimiter);
 // CORS
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['https://curious-fenglisu-66f227.netlify.app/', 'http://localhost:3000'];
+  : ['https://curious-fenglisu-66f227.netlify.app/'];
 
 app.use(cors({
   origin: (origin, callback) => {
