@@ -1,4 +1,6 @@
 import AttendanceModel from '../models/AttendanceModel.js';
+import TelegramService from '../services/telegramService.js';
+import db from '../config/database.js';
 
 export const getStudentsForSession = async (req, res, next) => {
   try {
@@ -7,6 +9,79 @@ export const getStudentsForSession = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+export const getSessionAttendance = async (req, res, next) => {
+  try {
+    const attendance = await AttendanceModel.getSessionAttendance(req.params.sessionId);
+    res.json({ success: true, data: attendance });
+  } catch (error) { next(error); }
+};
+
+// Check if user can mark attendance for this session
+async function canMarkAttendance(sessionId, user) {
+  // CM, OM, HOEC, ADMIN can always mark attendance
+  const alwaysAllowedRoles = ['CM', 'OM', 'HOEC', 'ADMIN'];
+  if (alwaysAllowedRoles.includes(user.role_name)) {
+    return { allowed: true };
+  }
+
+  // Teacher can only mark within time window
+  if (user.role_name === 'TEACHER') {
+    const [sessions] = await db.query(
+      `SELECT s.*, c.teacher_id FROM sessions s 
+       JOIN classes c ON s.class_id = c.id 
+       WHERE s.id = ?`,
+      [sessionId]
+    );
+
+    if (!sessions.length) {
+      return { allowed: false, reason: 'Buổi học không tồn tại' };
+    }
+
+    const session = sessions[0];
+
+    // Check if teacher is assigned to this class
+    if (session.teacher_id !== user.id) {
+      return { allowed: false, reason: 'Bạn không phải giáo viên của lớp này' };
+    }
+
+    const now = new Date();
+    const sessionDate = new Date(session.session_date);
+
+    // Parse session time
+    const [startHour, startMin] = (session.start_time || '08:00:00').split(':').map(Number);
+    const [endHour, endMin] = (session.end_time || '09:30:00').split(':').map(Number);
+
+    // Create session datetime
+    const sessionStart = new Date(sessionDate);
+    sessionStart.setHours(startHour, startMin, 0, 0);
+
+    const sessionEnd = new Date(sessionDate);
+    sessionEnd.setHours(endHour, endMin, 0, 0);
+
+    // Time window: 5 minutes before start to 15 minutes after end
+    const windowStart = new Date(sessionStart.getTime() - 5 * 60 * 1000);
+    const windowEnd = new Date(sessionEnd.getTime() + 15 * 60 * 1000);
+
+    if (now < windowStart) {
+      return {
+        allowed: false,
+        reason: `Chưa đến thời gian điểm danh. Bạn có thể điểm danh từ ${windowStart.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`
+      };
+    }
+
+    if (now > windowEnd) {
+      return {
+        allowed: false,
+        reason: 'Đã quá thời gian điểm danh (sau 15 phút kết thúc buổi học). Vui lòng liên hệ CM/OM.'
+      };
+    }
+
+    return { allowed: true };
+  }
+
+  return { allowed: false, reason: 'Bạn không có quyền điểm danh' };
+}
+
 export const markAttendance = async (req, res, next) => {
   try {
     const { attendances } = req.body;
@@ -14,8 +89,44 @@ export const markAttendance = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Dữ liệu không hợp lệ' });
     }
 
-    await AttendanceModel.markAttendance(req.params.sessionId, attendances, req.user.id);
-    res.json({ success: true, message: 'Lưu điểm danh thành công' });
+    // Check permission
+    const permCheck = await canMarkAttendance(req.params.sessionId, req.user);
+    if (!permCheck.allowed) {
+      return res.status(403).json({ success: false, message: permCheck.reason });
+    }
+
+    const result = await AttendanceModel.markAttendance(req.params.sessionId, attendances, req.user.id);
+
+    // Send Telegram warnings for students with late + absent >= 3
+    if (result.warnings && result.warnings.length > 0) {
+      for (const warning of result.warnings) {
+        const message = `⚠️ *CẢNH BÁO ĐIỂM DANH*
+
+📚 Lớp: *${warning.className}*
+👤 Học sinh: *${warning.studentName}*
+🆔 Mã: \`${warning.studentCode}\`
+📱 SĐT PH: ${warning.parentPhone || 'Không có'}
+
+📊 *Thống kê:*
+- Đi muộn: ${warning.lateCount} buổi
+- Nghỉ không phép: ${warning.absentCount} buổi
+- Tổng: ${warning.lateCount + warning.absentCount} buổi
+
+❗️ Học sinh đã vượt quá 3 buổi muộn/nghỉ không phép. Cần liên hệ phụ huynh!`;
+
+        try {
+          await TelegramService.sendMessage(message);
+        } catch (teleErr) {
+          console.error('Telegram warning error:', teleErr);
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Lưu điểm danh thành công',
+      warnings: result.warnings || []
+    });
   } catch (error) { next(error); }
 };
 
@@ -31,5 +142,13 @@ export const update = async (req, res, next) => {
     const { status, note } = req.body;
     await AttendanceModel.update(req.params.id, { status, note });
     res.json({ success: true, message: 'Cập nhật thành công' });
+  } catch (error) { next(error); }
+};
+
+export const getStudentsWithWarnings = async (req, res, next) => {
+  try {
+    const branchId = req.query.branchId || null;
+    const students = await AttendanceModel.getStudentsWithWarnings(branchId);
+    res.json({ success: true, data: students });
   } catch (error) { next(error); }
 };

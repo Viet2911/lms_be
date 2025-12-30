@@ -71,12 +71,17 @@ class StudentModel extends BaseModel {
   async getStats(saleId = null, branchId = null) {
     let sql = `SELECT COUNT(*) as total,
       SUM(status = 'pending') as pending,
+      SUM(status = 'waiting') as waiting,
       SUM(status = 'active') as active,
+      SUM(status = 'paused') as paused,
+      SUM(status = 'expired') as expired,
+      SUM(status = 'quit_paid') as quit_paid,
+      SUM(status = 'quit_refund') as quit_refund,
+      SUM(status = 'reserved') as reserved,
       SUM(status = 'inactive') as inactive,
       SUM(status = 'graduated') as graduated,
       SUM(status = 'dropped') as dropped,
       SUM(fee_status = 'expiring_soon') as expiring_soon,
-      SUM(fee_status = 'expired') as expired,
       SUM(payment_status = 'pending') as unpaid,
       SUM(payment_status = 'partial') as partial_paid,
       SUM(payment_status = 'paid') as fully_paid
@@ -86,6 +91,51 @@ class StudentModel extends BaseModel {
     if (saleId) { sql += ' AND sale_id = ?'; params.push(saleId); }
     const [rows] = await this.db.query(sql, params);
     return rows[0];
+  }
+
+  // Thay đổi trạng thái học sinh
+  async changeStatus(studentId, newStatus, data = {}) {
+    const student = await this.findById(studentId);
+    if (!student) throw new Error('Học sinh không tồn tại');
+
+    const oldStatus = student.status;
+
+    // Update student status
+    let updateSql = 'UPDATE students SET status = ?, status_changed_at = NOW()';
+    const params = [newStatus];
+
+    if (data.reason) {
+      updateSql += ', status_reason = ?';
+      params.push(data.reason);
+    }
+
+    if (newStatus === 'reserved' && data.reserveMonths) {
+      updateSql += ', reserve_until = DATE_ADD(NOW(), INTERVAL ? MONTH)';
+      params.push(data.reserveMonths);
+    }
+
+    if (newStatus === 'paused' && data.expectedReturn) {
+      updateSql += ', expected_return_date = ?';
+      params.push(data.expectedReturn);
+    }
+
+    if (newStatus === 'quit_refund' && data.refundAmount) {
+      updateSql += ', refund_amount = ?';
+      params.push(data.refundAmount);
+    }
+
+    updateSql += ' WHERE id = ?';
+    params.push(studentId);
+
+    await this.db.query(updateSql, params);
+
+    // Log status change
+    await this.db.query(`
+      INSERT INTO student_status_logs (student_id, old_status, new_status, reason, changed_by, changed_at)
+      VALUES (?, ?, ?, ?, ?, NOW())
+    `, [studentId, oldStatus, newStatus, data.reason || null, data.changedBy || null]);
+
+    return { oldStatus, newStatus };
   }
 
   // Lấy học sinh sắp hết phí
@@ -293,7 +343,62 @@ class StudentModel extends BaseModel {
     `, [studentId]);
     return rows;
   }
+
+  // Xác nhận đã nhận thanh toán - cập nhật actual_revenue
+  async confirmPayment(studentId, { amount, paymentMethod, note, confirmedBy }) {
+    const conn = await this.db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Lấy thông tin học sinh hiện tại
+      const [students] = await conn.query(
+        'SELECT id, actual_revenue, fee_total, fee_status, branch_id, sale_id FROM students WHERE id = ?',
+        [studentId]
+      );
+
+      if (!students.length) {
+        throw new Error('Không tìm thấy học sinh');
+      }
+
+      const student = students[0];
+      const newActualRevenue = (student.actual_revenue || 0) + amount;
+      const feeTotal = student.fee_total || 0;
+
+      // Xác định trạng thái thanh toán mới
+      let newFeeStatus = 'partial';
+      if (newActualRevenue >= feeTotal) {
+        newFeeStatus = 'paid';
+      }
+
+      // Cập nhật actual_revenue trong students
+      await conn.query(`
+        UPDATE students 
+        SET actual_revenue = ?, fee_status = ?, updated_at = NOW()
+        WHERE id = ?
+      `, [newActualRevenue, newFeeStatus, studentId]);
+
+      // Ghi nhận vào revenues (doanh thu)
+      await conn.query(`
+        INSERT INTO revenues (branch_id, student_id, ec_id, amount, type, payment_method, note, created_at)
+        VALUES (?, ?, ?, ?, 'tuition', ?, ?, NOW())
+      `, [student.branch_id, studentId, confirmedBy, amount, paymentMethod, note]);
+
+      await conn.commit();
+
+      return {
+        studentId,
+        previousRevenue: student.actual_revenue || 0,
+        newRevenue: newActualRevenue,
+        feeStatus: newFeeStatus,
+        amountReceived: amount
+      };
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  }
 }
 
 export default new StudentModel();
-

@@ -67,7 +67,7 @@ export const create = async (req, res, next) => {
 export const update = async (req, res, next) => {
   try {
     const { className, subjectId, levelId, teacherId, cmId, studyDays, startTime, endTime, room, startDate, totalSessions, maxStudents, status } = req.body;
-    
+
     const data = {};
     if (className) data.class_name = className;
     if (subjectId !== undefined) data.subject_id = subjectId || null;
@@ -98,36 +98,33 @@ export const remove = async (req, res, next) => {
 export const addStudent = async (req, res, next) => {
   try {
     const { studentId } = req.body;
-    
-    // Validate student has complete info before adding to class
+
+    // Validate student exists
     const student = await StudentModel.findByIdWithRelations(studentId);
     if (!student) {
       return res.status(404).json({ success: false, message: 'Học sinh không tồn tại' });
     }
 
-    // Check required fields
+    // Check required fields - chỉ cần thông tin cơ bản
     const missingFields = [];
     if (!student.full_name) missingFields.push('Họ tên');
-    if (!student.birth_year) missingFields.push('Năm sinh');
-    if (!student.parent_name) missingFields.push('Tên phụ huynh');
     if (!student.parent_phone) missingFields.push('SĐT phụ huynh');
-    if (!student.subject_id) missingFields.push('Môn học');
-    if (!student.level_id) missingFields.push('Cấp độ');
 
     if (missingFields.length > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Học sinh thiếu thông tin bắt buộc: ${missingFields.join(', ')}. Vui lòng cập nhật hồ sơ học sinh trước khi thêm vào lớp.`,
+      return res.status(400).json({
+        success: false,
+        message: `Học sinh thiếu thông tin bắt buộc: ${missingFields.join(', ')}`,
         missingFields,
         studentId
       });
     }
 
-    // Check if student status is active
-    if (student.status !== 'active') {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Học sinh đang ở trạng thái "${student.status}". Chỉ học sinh "active" mới được thêm vào lớp.`
+    // Allow pending, waiting, active students to be added to class
+    const allowedStatuses = ['active', 'pending', 'waiting'];
+    if (!allowedStatuses.includes(student.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Học sinh đang ở trạng thái "${student.status}". Chỉ học sinh "pending", "waiting" hoặc "active" mới được thêm vào lớp.`
       });
     }
 

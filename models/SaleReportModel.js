@@ -37,10 +37,11 @@ class SaleReportModel extends BaseModel {
           SUM(CASE WHEN status = 'converted' THEN (fee_total - actual_revenue) ELSE 0 END) as expected_revenue,
           SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as leads_converted
         FROM leads
+        WHERE DATE_FORMAT(created_at, '%Y-%m') = ?
         GROUP BY sale_id
       ) stats ON stats.sale_id = u.id
       WHERE u.id = ?
-    `, [month, ecId]);
+    `, [month, month, ecId]);
     return rows[0] || null;
   }
 
@@ -76,11 +77,12 @@ class SaleReportModel extends BaseModel {
           SUM(CASE WHEN status = 'converted' THEN (fee_total - actual_revenue) ELSE 0 END) as expected_revenue,
           SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as leads_converted
         FROM leads
+        WHERE DATE_FORMAT(created_at, '%Y-%m') = ?
         GROUP BY sale_id
       ) stats ON stats.sale_id = u.id
       WHERE u.role_id IN (SELECT id FROM roles WHERE name IN ('EC', 'SALE'))
     `;
-    const params = [month];
+    const params = [month, month];
 
     if (branchId) {
       sql += ' AND ub.branch_id = ?';
@@ -103,9 +105,9 @@ class SaleReportModel extends BaseModel {
         SUM(CASE WHEN l.status = 'converted' THEN (l.fee_total - l.actual_revenue) ELSE 0 END) as total_expected,
         SUM(CASE WHEN l.status = 'converted' THEN 1 ELSE 0 END) as total_converted
       FROM leads l
-      WHERE 1=1
+      WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ?
     `;
-    const params = [];
+    const params = [month];
 
     if (branchId) {
       sql += ' AND l.branch_id = ?';
@@ -147,12 +149,13 @@ class SaleReportModel extends BaseModel {
           SUM(CASE WHEN status = 'converted' THEN (fee_total - actual_revenue) ELSE 0 END) as expected_revenue,
           SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as leads_converted
         FROM leads
+        WHERE DATE_FORMAT(created_at, '%Y-%m') = ?
         GROUP BY sale_id
       ) stats ON stats.sale_id = u.id
       WHERE u.role_id IN (SELECT id FROM roles WHERE name IN ('EC', 'SALE'))
         AND COALESCE(stats.revenue, 0) > 0
     `;
-    const params = [month];
+    const params = [month, month];
 
     if (branchId) {
       sql += ' AND ub.branch_id = ?';
@@ -191,12 +194,13 @@ class SaleReportModel extends BaseModel {
           SUM(CASE WHEN status IN ('attended', 'trial', 'converted') THEN 1 ELSE 0 END) as checkin_count,
           SUM(CASE WHEN status = 'converted' THEN actual_revenue ELSE 0 END) as revenue
         FROM leads
+        WHERE DATE_FORMAT(created_at, '%Y-%m') = ?
         GROUP BY sale_id
       ) stats ON stats.sale_id = u.id
       WHERE u.role_id IN (SELECT id FROM roles WHERE name IN ('EC', 'SALE'))
         AND kt.target_revenue > 0
     `;
-    const params = [month];
+    const params = [month, month];
 
     if (branchId) {
       sql += ' AND ub.branch_id = ?';
@@ -224,10 +228,10 @@ class SaleReportModel extends BaseModel {
         SUM(CASE WHEN l.status = 'converted' THEN (l.fee_total - l.actual_revenue) ELSE 0 END) as expected_revenue,
         SUM(CASE WHEN l.status = 'converted' THEN 1 ELSE 0 END) as leads_converted
       FROM branches b
-      LEFT JOIN leads l ON l.branch_id = b.id
+      LEFT JOIN leads l ON l.branch_id = b.id AND DATE_FORMAT(l.created_at, '%Y-%m') = ?
       WHERE b.status = 'active'
     `;
-    const params = [];
+    const params = [month];
 
     if (branchId) {
       sql += ' AND b.id = ?';
@@ -235,6 +239,75 @@ class SaleReportModel extends BaseModel {
     }
 
     sql += ' GROUP BY b.id ORDER BY revenue DESC';
+    const [rows] = await this.db.query(sql, params);
+    return rows;
+  }
+
+  // Lấy danh sách leads chưa đóng đủ tiền (dự thu) - NEW
+  async getExpectedRevenueList(month, branchId = null) {
+    let sql = `
+      SELECT 
+        l.id,
+        l.student_name,
+        l.customer_name,
+        l.customer_phone,
+        l.fee_total,
+        l.actual_revenue,
+        l.deposit_amount,
+        (l.fee_total - l.actual_revenue) as expected_revenue,
+        u.full_name as ec_name,
+        b.name as branch_name,
+        b.code as branch_code,
+        l.created_at
+      FROM leads l
+      LEFT JOIN users u ON l.sale_id = u.id
+      LEFT JOIN branches b ON l.branch_id = b.id
+      WHERE l.status = 'converted'
+        AND l.fee_total > l.actual_revenue
+        AND DATE_FORMAT(l.created_at, '%Y-%m') = ?
+    `;
+    const params = [month];
+
+    if (branchId) {
+      sql += ' AND l.branch_id = ?';
+      params.push(branchId);
+    }
+
+    sql += ' ORDER BY expected_revenue DESC';
+    const [rows] = await this.db.query(sql, params);
+    return rows;
+  }
+
+  // Lấy danh sách leads đã đóng đủ tiền - NEW
+  async getFullPaidList(month, branchId = null) {
+    let sql = `
+      SELECT 
+        l.id,
+        l.student_name,
+        l.customer_name,
+        l.customer_phone,
+        l.fee_total,
+        l.actual_revenue,
+        l.deposit_amount,
+        u.full_name as ec_name,
+        b.name as branch_name,
+        b.code as branch_code,
+        l.created_at
+      FROM leads l
+      LEFT JOIN users u ON l.sale_id = u.id
+      LEFT JOIN branches b ON l.branch_id = b.id
+      WHERE l.status = 'converted'
+        AND l.fee_total <= l.actual_revenue
+        AND DATE_FORMAT(l.created_at, '%Y-%m') = ?
+    `;
+    const params = [month];
+
+    if (branchId) {
+      sql += ' AND l.branch_id = ?';
+      params.push(branchId);
+    }
+
+    sql += ' ORDER BY actual_revenue DESC';
     const [rows] = await this.db.query(sql, params);
     return rows;
   }

@@ -43,7 +43,7 @@ export const getByMonth = async (req, res, next) => {
 export const create = async (req, res, next) => {
   try {
     const { branchId, customerName, customerPhone, customerEmail, studentName, studentBirthYear, subjectId, levelId, scheduledDate, scheduledTime, durationMinutes, note } = req.body;
-    
+
     // Validation
     if (!customerName || !customerPhone || !studentName || !scheduledDate || !scheduledTime) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin bắt buộc' });
@@ -60,18 +60,18 @@ export const create = async (req, res, next) => {
     const exp = await ExperienceModel.create({
       branch_id: finalBranchId,
       code: ExperienceModel.generateCode(branchCode),
-      customer_name: customerName, 
-      customer_phone: customerPhone, 
+      customer_name: customerName,
+      customer_phone: customerPhone,
       customer_email: customerEmail,
-      student_name: studentName, 
+      student_name: studentName,
       student_birth_year: studentBirthYear,
-      subject_id: subjectId || null, 
+      subject_id: subjectId || null,
       level_id: levelId || null,
-      scheduled_date: scheduledDate, 
+      scheduled_date: scheduledDate,
       scheduled_time: scheduledTime,
-      duration_minutes: durationMinutes || 60, 
-      note, 
-      sale_id: req.user.id, 
+      duration_minutes: durationMinutes || 60,
+      note,
+      sale_id: req.user.id,
       status: 'pending'
     });
 
@@ -79,7 +79,7 @@ export const create = async (req, res, next) => {
     let subjectName = null;
     let levelName = null;
     let branchName = null;
-    
+
     if (subjectId) {
       const [[subject]] = await db.query('SELECT name FROM subjects WHERE id = ?', [subjectId]);
       subjectName = subject?.name;
@@ -113,7 +113,7 @@ export const create = async (req, res, next) => {
 export const update = async (req, res, next) => {
   try {
     const { customerName, customerPhone, customerEmail, studentName, studentBirthYear, subjectId, levelId, scheduledDate, scheduledTime, durationMinutes, status, feedback, rating, note } = req.body;
-    
+
     const existing = await ExperienceModel.findById(req.params.id);
     if (!existing) return res.status(404).json({ success: false, message: 'Không tìm thấy' });
     if (req.user.role_name === 'SALE' && existing.sale_id !== req.user.id) {
@@ -150,4 +150,114 @@ export const remove = async (req, res, next) => {
     await ExperienceModel.delete(req.params.id);
     res.json({ success: true, message: 'Xóa thành công' });
   } catch (error) { next(error); }
+};
+
+// Convert experience to student
+export const convertToStudent = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const {
+      studentName, birthYear, address, school,
+      customerName, customerPhone, parentJob,
+      packageId, feeOriginal, feeDiscount, feeTotal,
+      scholarshipMonths, defaultScholarshipMonths, scholarshipNeedsApproval,
+      depositAmount, paidAmount, actualRevenue, paymentStatus,
+      note
+    } = req.body;
+
+    // Get experience
+    const exp = await ExperienceModel.findByIdWithRelations(id);
+    if (!exp) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy lịch trải nghiệm' });
+    }
+
+    if (exp.status === 'converted') {
+      return res.status(400).json({ success: false, message: 'Lịch trải nghiệm này đã được chuyển đổi' });
+    }
+
+    // Generate student code
+    const branchCode = exp.branch_code || 'HN';
+    const [codeResult] = await db.query(
+      `SELECT COUNT(*) as count FROM students WHERE branch_id = ?`,
+      [exp.branch_id]
+    );
+    const count = (codeResult[0]?.count || 0) + 1;
+    const studentCode = `TH-${branchCode}-${String(count).padStart(4, '0')}`;
+
+    // Create student
+    const [studentResult] = await db.query(
+      `INSERT INTO students (
+        branch_id, student_code, full_name, birth_year, address, school,
+        parent_name, parent_phone, parent_job,
+        tuition_fee, discount_amount, scholarship_months,
+        status, note, assigned_ec, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        exp.branch_id,
+        studentCode,
+        studentName || exp.student_name,
+        birthYear || exp.student_birth_year,
+        address || null,
+        school || null,
+        customerName || exp.customer_name,
+        customerPhone || exp.customer_phone,
+        parentJob || null,
+        feeTotal || 0,
+        feeDiscount || 0,
+        scholarshipMonths || 0,
+        'pending',
+        note || null,
+        exp.sale_id || req.user.id
+      ]
+    );
+
+    const studentId = studentResult.insertId;
+
+    // Create payment record if any payment
+    if (actualRevenue > 0) {
+      await db.query(
+        `INSERT INTO payments (student_id, amount, payment_type, status, note, created_by, created_at)
+         VALUES (?, ?, ?, 'completed', ?, ?, NOW())`,
+        [studentId, actualRevenue, depositAmount > 0 ? 'deposit' : 'tuition', 'Thanh toán khi chuyển đổi', req.user.id]
+      );
+    }
+
+    // Update experience status
+    await ExperienceModel.update(id, { status: 'converted' });
+
+    // Send Telegram notification
+    try {
+      const paymentInfo = paymentStatus === 'paid' ? 'Đã đóng đủ' :
+        paymentStatus === 'deposit' ? `Cọc ${(depositAmount || 0).toLocaleString('vi-VN')}đ` :
+          paymentStatus === 'partial' ? `Đã đóng ${(actualRevenue || 0).toLocaleString('vi-VN')}đ` : 'Chưa đóng';
+
+      await telegramService.sendMessage(
+        `🎉 <b>Học viên mới từ trải nghiệm!</b>\n` +
+        `👶 HS: ${studentName || exp.student_name}\n` +
+        `📋 Mã: ${studentCode}\n` +
+        `👤 PH: ${customerName || exp.customer_name} - ${customerPhone || exp.customer_phone}\n` +
+        `💰 Học phí: ${(feeTotal || 0).toLocaleString('vi-VN')}đ (${paymentInfo})\n` +
+        `👨‍💼 EC: ${exp.sale_name || req.user.full_name}\n` +
+        `⏰ CM vui lòng xếp lớp!`
+      );
+    } catch (e) {
+      console.error('Telegram error:', e);
+    }
+
+    res.json({
+      success: true,
+      message: 'Chuyển đổi thành công!',
+      data: {
+        id: studentId,
+        studentId: studentId,
+        student_code: studentCode,
+        studentCode: studentCode,
+        full_name: studentName || exp.student_name,
+        fee_total: feeTotal || 0,
+        paid_amount: actualRevenue || 0
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
 };

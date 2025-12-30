@@ -1,50 +1,17 @@
-import twilio from 'twilio';
+import { RestClient } from '@signalwire/compatibility-api';
 
-// Twilio config from environment
-const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
-const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
-const TWILIO_API_KEY = process.env.TWILIO_API_KEY;
-const TWILIO_API_SECRET = process.env.TWILIO_API_SECRET;
-const TWILIO_TWIML_APP_SID = process.env.TWILIO_TWIML_APP_SID;
-const TWILIO_PHONE_NUMBER = process.env.TWILIO_PHONE_NUMBER;
+// SignalWire config from environment
+const SIGNALWIRE_PROJECT_ID = process.env.SIGNALWIRE_PROJECT_ID;
+const SIGNALWIRE_API_TOKEN = process.env.SIGNALWIRE_API_TOKEN;
+const SIGNALWIRE_SPACE_URL = process.env.SIGNALWIRE_SPACE_URL;
+const SIGNALWIRE_PHONE_NUMBER = process.env.SIGNALWIRE_PHONE_NUMBER;
 
-// Generate Twilio access token for browser
-export const getToken = async (req, res, next) => {
-    try {
-        if (!TWILIO_ACCOUNT_SID || !TWILIO_API_KEY || !TWILIO_API_SECRET) {
-            return res.json({
-                success: true,
-                data: { token: null, message: 'Twilio not configured' }
-            });
-        }
-
-        const identity = `user_${req.user.id}`;
-
-        const AccessToken = twilio.jwt.AccessToken;
-        const VoiceGrant = AccessToken.VoiceGrant;
-
-        const voiceGrant = new VoiceGrant({
-            outgoingApplicationSid: TWILIO_TWIML_APP_SID,
-            incomingAllow: true
-        });
-
-        const token = new AccessToken(
-            TWILIO_ACCOUNT_SID,
-            TWILIO_API_KEY,
-            TWILIO_API_SECRET,
-            { identity: identity }
-        );
-
-        token.addGrant(voiceGrant);
-
-        res.json({
-            success: true,
-            data: { token: token.toJwt() }
-        });
-    } catch (error) {
-        console.error('Twilio token error:', error);
-        res.json({ success: true, data: { token: null } });
+// Initialize SignalWire client
+const getClient = () => {
+    if (!SIGNALWIRE_PROJECT_ID || !SIGNALWIRE_API_TOKEN || !SIGNALWIRE_SPACE_URL) {
+        return null;
     }
+    return RestClient(SIGNALWIRE_PROJECT_ID, SIGNALWIRE_API_TOKEN, { signalwireSpaceUrl: SIGNALWIRE_SPACE_URL });
 };
 
 // Get call config
@@ -53,8 +20,8 @@ export const getConfig = async (req, res, next) => {
         res.json({
             success: true,
             data: {
-                from_number: TWILIO_PHONE_NUMBER || null,
-                configured: !!(TWILIO_ACCOUNT_SID && TWILIO_API_KEY)
+                from_number: SIGNALWIRE_PHONE_NUMBER || null,
+                configured: !!(SIGNALWIRE_PROJECT_ID && SIGNALWIRE_API_TOKEN && SIGNALWIRE_SPACE_URL)
             }
         });
     } catch (error) {
@@ -62,26 +29,109 @@ export const getConfig = async (req, res, next) => {
     }
 };
 
-// TwiML endpoint for outbound calls
-export const twiml = async (req, res, next) => {
+// Get token for browser (SignalWire uses different approach - we'll use REST API for calls)
+export const getToken = async (req, res, next) => {
     try {
-        const VoiceResponse = twilio.twiml.VoiceResponse;
-        const response = new VoiceResponse();
+        // SignalWire browser calling requires different setup
+        // For now, return config status - calls will be made via backend API
+        res.json({
+            success: true,
+            data: {
+                configured: !!(SIGNALWIRE_PROJECT_ID && SIGNALWIRE_API_TOKEN),
+                useBackendCall: true // Flag to tell frontend to use backend API for calls
+            }
+        });
+    } catch (error) {
+        console.error('SignalWire config error:', error);
+        res.json({ success: true, data: { configured: false } });
+    }
+};
 
-        const to = req.body.To || req.query.To;
+// Make outbound call via backend
+export const makeCall = async (req, res, next) => {
+    try {
+        const { to } = req.body;
 
-        if (to) {
-            const dial = response.dial({
-                callerId: TWILIO_PHONE_NUMBER
-            });
-            dial.number(to);
-        } else {
-            response.say('No phone number provided');
+        if (!to) {
+            return res.status(400).json({ success: false, message: 'Số điện thoại không được để trống' });
         }
 
+        const client = getClient();
+        if (!client) {
+            return res.status(500).json({ success: false, message: 'SignalWire chưa được cấu hình' });
+        }
+
+        // Format phone number
+        let formattedTo = to.replace(/[^0-9+]/g, '');
+        if (formattedTo.startsWith('0')) {
+            formattedTo = '+84' + formattedTo.substring(1);
+        } else if (!formattedTo.startsWith('+')) {
+            formattedTo = '+' + formattedTo;
+        }
+
+        const call = await client.calls.create({
+            url: `https://${req.get('host')}/api/call/twiml?To=${encodeURIComponent(formattedTo)}`,
+            to: formattedTo,
+            from: SIGNALWIRE_PHONE_NUMBER
+        });
+
+        res.json({
+            success: true,
+            data: {
+                callSid: call.sid,
+                status: call.status,
+                to: formattedTo
+            }
+        });
+    } catch (error) {
+        console.error('SignalWire call error:', error);
+        res.status(500).json({ success: false, message: error.message || 'Lỗi khi gọi điện' });
+    }
+};
+
+// TwiML endpoint for calls (SignalWire compatible)
+export const twiml = async (req, res, next) => {
+    try {
+        const to = req.body.To || req.query.To;
+
+        let xml = '<?xml version="1.0" encoding="UTF-8"?><Response>';
+
+        if (to) {
+            xml += `<Dial callerId="${SIGNALWIRE_PHONE_NUMBER}"><Number>${to}</Number></Dial>`;
+        } else {
+            xml += '<Say language="vi-VN">Không có số điện thoại</Say>';
+        }
+
+        xml += '</Response>';
+
         res.type('text/xml');
-        res.send(response.toString());
+        res.send(xml);
     } catch (error) {
         next(error);
+    }
+};
+
+// Get call status
+export const getCallStatus = async (req, res, next) => {
+    try {
+        const { callSid } = req.params;
+
+        const client = getClient();
+        if (!client) {
+            return res.status(500).json({ success: false, message: 'SignalWire chưa được cấu hình' });
+        }
+
+        const call = await client.calls(callSid).fetch();
+
+        res.json({
+            success: true,
+            data: {
+                status: call.status,
+                duration: call.duration
+            }
+        });
+    } catch (error) {
+        console.error('Get call status error:', error);
+        res.status(500).json({ success: false, message: error.message });
     }
 };

@@ -9,7 +9,7 @@ class BaseModel {
   async findAll({ where = {}, orderBy = 'id DESC', page = 1, limit = 20, select = '*' } = {}) {
     const offset = (page - 1) * limit;
     const { clause, params } = this.buildWhere(where);
-    
+
     const countSql = `SELECT COUNT(*) as total FROM ${this.table} ${clause}`;
     const [countRows] = await this.db.query(countSql, params);
     const total = countRows[0]?.total || 0;

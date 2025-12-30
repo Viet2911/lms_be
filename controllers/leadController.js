@@ -348,11 +348,18 @@ export const convertToStudent = async (req, res, next) => {
     const { id } = req.params;
     const {
       studentName, birthYear, gender, school,
-      parentName, parentPhone, parentEmail, address,
+      customerName, customerPhone, parentJob, address,
       subjectId, levelId, sessionsPerWeek, startDate,
-      classId, // Thêm classId để xếp lớp luôn nếu có
-      feePackage, feeOriginal, feeDiscount, feeTotal,
-      paymentStatus, depositAmount, paidAmount, note
+      classId,
+      // Package & Fee
+      packageId, feeOriginal, feeDiscount, feeTotal,
+      // Scholarship
+      scholarshipMonths, defaultScholarshipMonths, scholarshipNeedsApproval,
+      // Payment - KHÔNG lưu doanh thu ngay, chỉ lưu thông tin
+      paymentStatus, depositAmount, paidAmount,
+      // Promo
+      programId, gifts,
+      note
     } = req.body;
 
     const lead = await LeadModel.findByIdWithRelations(id);
@@ -360,8 +367,13 @@ export const convertToStudent = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Không tìm thấy lead' });
     }
 
-    // Tạo học sinh mới với status = pending (chờ CM xếp lớp) hoặc active nếu có classId
+    // Tạo học sinh mới
     const studentCode = await StudentModel.generateCode(lead.branch_code);
+
+    // Format gifts string
+    const giftsStr = gifts && gifts.length > 0
+      ? gifts.map(g => g.name).join(', ')
+      : '';
 
     const studentData = {
       branch_id: lead.branch_id,
@@ -370,49 +382,50 @@ export const convertToStudent = async (req, res, next) => {
       birth_year: birthYear || lead.student_birth_year,
       gender: gender || null,
       school: school || null,
-      parent_name: parentName || lead.customer_name,
-      parent_phone: parentPhone || lead.customer_phone,
-      parent_email: parentEmail || lead.customer_email,
+      parent_name: customerName || lead.customer_name,
+      parent_phone: customerPhone || lead.customer_phone,
+      parent_email: lead.customer_email,
+      parent_job: parentJob || null,
       address: address || null,
       subject_id: subjectId || lead.subject_id,
       level_id: levelId || lead.level_id,
+      current_level_id: levelId || lead.level_id,
       sessions_per_week: sessionsPerWeek || 2,
       start_date: startDate || null,
-      fee_package: feePackage || 'monthly',
+      // Package info
+      package_id: packageId || null,
       fee_original: feeOriginal || 0,
       fee_discount: feeDiscount || 0,
       fee_total: feeTotal || 0,
-      payment_status: paymentStatus || 'pending',
-      paid_amount: paidAmount || 0,
+      // Scholarship
+      scholarship_months: scholarshipMonths || 0,
+      // Payment - actual_revenue = 0, sẽ cập nhật khi xác nhận thanh toán
+      actual_revenue: 0,
+      fee_status: 'pending', // Chưa thanh toán
+      // Gifts & Note
+      gifts: giftsStr,
       note: note || null,
-      status: classId ? 'active' : 'pending' // Active nếu có lớp, pending nếu chờ xếp
+      // Sale
+      sale_id: lead.sale_id,
+      // Status
+      status: classId ? 'active' : 'pending'
     };
-
-    // Add optional columns if they exist in DB
-    // class_id và ec_id cần chạy migration trước
-    // studentData.class_id = classId || null;
-    // studentData.ec_id = lead.sale_id;
 
     const student = await StudentModel.create(studentData);
 
-    // Tính actual_revenue = cọc + đã đóng
-    const actualRevenue = (depositAmount || 0) + (paidAmount || 0);
-
-    // Cập nhật lead với actual_revenue, deposit_amount và fee_total
-    await LeadModel.convertToStudent(id, student.id, actualRevenue, depositAmount || 0, feeTotal || 0);
+    // Cập nhật lead - KHÔNG lưu actual_revenue
+    await LeadModel.convertToStudent(id, student.id, 0, depositAmount || 0, feeTotal || 0);
 
     // Gửi thông báo Telegram cho CM
     try {
-      const paymentInfo = paymentStatus === 'paid' ? 'Đã đóng đủ' :
-        paymentStatus === 'deposit' ? `Cọc ${(depositAmount || 0).toLocaleString('vi-VN')}đ` :
-          paymentStatus === 'partial' ? `Đã đóng ${actualRevenue.toLocaleString('vi-VN')}đ` : 'Chưa đóng';
       await telegramService.sendMessage(
         `🎉 <b>Học viên mới${classId ? '' : ' chờ xếp lớp'}!</b>\n` +
         `👶 HS: ${studentName || lead.student_name}\n` +
         `📋 Mã: ${studentCode}\n` +
-        `👤 PH: ${parentName || lead.customer_name} - ${parentPhone || lead.customer_phone}\n` +
+        `👤 PH: ${customerName || lead.customer_name} - ${customerPhone || lead.customer_phone}\n` +
         `📚 Môn: ${lead.subject_name || '-'}\n` +
-        `💰 Học phí: ${(feeTotal || 0).toLocaleString('vi-VN')}đ (${paymentInfo})\n` +
+        `💰 Học phí: ${(feeTotal || 0).toLocaleString('vi-VN')}đ (Chờ thanh toán)\n` +
+        `🎁 HB: ${scholarshipMonths || 0} tháng\n` +
         `👨‍💼 EC: ${lead.sale_name || '-'}\n` +
         (classId ? '' : `⏰ CM vui lòng xếp lớp!`)
       );
@@ -421,7 +434,15 @@ export const convertToStudent = async (req, res, next) => {
     res.json({
       success: true,
       message: classId ? 'Đã chuyển đổi và xếp lớp thành công!' : 'Đã chuyển đổi thành học sinh. CM sẽ xếp lớp sau.',
-      data: { studentId: student.id, studentCode }
+      data: {
+        id: student.id,
+        studentId: student.id,
+        student_code: studentCode,
+        studentCode: studentCode,
+        full_name: studentName || lead.student_name,
+        fee_total: feeTotal || 0,
+        actual_revenue: 0 // Chưa thanh toán
+      }
     });
   } catch (error) { next(error); }
 };

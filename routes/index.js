@@ -17,6 +17,7 @@ import * as assignment from '../controllers/assignmentController.js';
 import * as file from '../controllers/fileController.js';
 import * as common from '../controllers/commonController.js';
 import * as dashboard from '../controllers/dashboardController.js';
+// import * as enrollment from '../controllers/enrollmentController.js'; // Requires: npm install docx node-fetch
 
 const router = Router();
 
@@ -52,7 +53,13 @@ router.get('/students/stats', authenticate, authorize('student.view'), student.g
 router.get('/students/:id', authenticate, authorize('student.view'), student.getById);
 router.post('/students', authenticate, authorizeRole('SALE', 'ADMIN'), student.create);
 router.put('/students/:id', authenticate, authorizeRole('SALE', 'ADMIN'), student.update);
+router.put('/students/:id/status', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'ADMIN'), student.changeStatus);
+router.post('/students/:id/confirm-payment', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'ADMIN'), student.confirmPayment);
 router.delete('/students/:id', authenticate, authorizeRole('SALE', 'ADMIN'), student.remove);
+
+// ENROLLMENT FORMS & QR
+router.get('/enrollment/:studentId/form', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'ADMIN'), student.getEnrollmentForm);
+router.get('/enrollment/:studentId/preview', authenticate, student.getEnrollmentPreview);
 
 // CLASSES
 // CLASSES
@@ -75,6 +82,7 @@ router.get('/experience/:id', authenticate, authorizeRole('SALE'), experience.ge
 router.post('/experience', authenticate, authorizeRole('SALE'), experience.create);
 router.put('/experience/:id', authenticate, authorizeRole('SALE'), experience.update);
 router.delete('/experience/:id', authenticate, authorizeRole('SALE'), experience.remove);
+router.post('/experience/:id/convert', authenticate, authorizeRole('SALE'), experience.convertToStudent);
 
 // TRIAL (Legacy - sẽ được thay thế bởi leads)
 router.get('/trial-students', authenticate, authorizeRole('SALE'), trial.getAll);
@@ -115,10 +123,12 @@ router.put('/sessions/:id', authenticate, authorizeRole('CM', 'ADMIN', 'TEACHER'
 router.delete('/sessions/:id', authenticate, authorizeRole('ADMIN'), session.remove);
 
 // ATTENDANCE
+router.get('/attendance/session/:sessionId', authenticate, attendance.getSessionAttendance);
 router.get('/attendance/session/:sessionId/students', authenticate, attendance.getStudentsForSession);
-router.post('/attendance/session/:sessionId/mark', authenticate, authorizeRole('TEACHER', 'CM', 'ADMIN'), attendance.markAttendance);
+router.post('/attendance/session/:sessionId/mark', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'HOEC', 'ADMIN'), attendance.markAttendance);
 router.get('/attendance/class/:classId/report', authenticate, attendance.getClassReport);
-router.put('/attendance/:id', authenticate, authorizeRole('TEACHER', 'CM', 'ADMIN'), attendance.update);
+router.get('/attendance/warnings', authenticate, attendance.getStudentsWithWarnings);
+router.put('/attendance/:id', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'HOEC', 'ADMIN'), attendance.update);
 
 // ASSIGNMENTS
 router.get('/assignments', authenticate, authorize('assignment.view'), assignment.getAll);
@@ -163,6 +173,9 @@ router.get('/sale-reports', authenticate, authorizeRole('HOEC', 'ADMIN', 'CHU'),
 router.get('/sale-reports/summary', authenticate, authorizeRole('HOEC', 'ADMIN', 'CHU'), saleReport.getSummary);
 router.get('/sale-reports/ranking/revenue', authenticate, saleReport.getRankingRevenue);
 router.get('/sale-reports/ranking/kpi', authenticate, saleReport.getRankingKpi);
+router.get('/sale-reports/expected-revenue', authenticate, authorizeRole('HOEC', 'ADMIN', 'CHU'), saleReport.getExpectedRevenueList);
+router.get('/sale-reports/full-paid', authenticate, authorizeRole('HOEC', 'ADMIN', 'CHU'), saleReport.getFullPaidList);
+router.get('/sale-reports/full-paid', authenticate, authorizeRole('HOEC', 'ADMIN', 'CHU'), saleReport.getFullPaidList);
 router.post('/sale-reports/calculate', authenticate, authorizeRole('ADMIN'), saleReport.calculateReport);
 router.post('/sale-reports/calculate-all', authenticate, authorizeRole('ADMIN'), saleReport.calculateAllReports);
 
@@ -182,10 +195,41 @@ router.get('/dashboard/teacher', authenticate, authorizeRole('TEACHER'), dashboa
 // Backward compatibility
 router.get('/dashboard/sale', authenticate, authorizeRole('EC', 'SALE'), dashboard.getSale);
 
-// CALL (Twilio)
+// PROMOTIONS (Khuyến mại)
+import * as promo from '../controllers/promotionController.js';
+// Chương trình KM
+router.get('/promotions/programs', authenticate, promo.getActivePrograms);
+router.get('/promotions/programs/all', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getAllPrograms);
+router.post('/promotions/programs', authenticate, authorizeRole('ADMIN', 'GDV'), promo.createProgram);
+router.put('/promotions/programs/:id', authenticate, authorizeRole('ADMIN', 'GDV'), promo.updateProgram);
+// Vật phẩm KM
+router.get('/promotions/items', authenticate, promo.getAllItems);
+router.get('/promotions/items/in-stock', authenticate, promo.getItemsInStock);
+router.get('/promotions/items/low-stock', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getLowStockItems);
+router.post('/promotions/items', authenticate, authorizeRole('ADMIN', 'GDV'), promo.createItem);
+router.put('/promotions/items/:id', authenticate, authorizeRole('ADMIN', 'GDV'), promo.updateItem);
+router.post('/promotions/stock', authenticate, authorizeRole('ADMIN', 'GDV'), promo.updateStock);
+router.get('/promotions/stock/history', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getStockHistory);
+// Học bổng KM
+router.get('/promotions/scholarships', authenticate, promo.getAllScholarships);
+router.post('/promotions/scholarships', authenticate, authorizeRole('ADMIN', 'GDV'), promo.createScholarship);
+// Lead Promotions
+router.get('/promotions/convert-data', authenticate, promo.getConvertData); // Data cho modal convert
+router.get('/promotions/lead/:leadId', authenticate, promo.getLeadPromotions);
+router.post('/promotions/lead/:leadId', authenticate, promo.applyPromotion);
+router.get('/promotions/pending', authenticate, authorizeRole('ADMIN', 'GDV', 'HOEC'), promo.getPendingApprovals);
+router.post('/promotions/lead/:leadId/approve', authenticate, authorizeRole('ADMIN', 'GDV'), promo.approveExtraDiscount);
+// Lead Gifts
+router.post('/promotions/lead/:leadId/gift', authenticate, promo.addGift);
+router.put('/promotions/gift/:giftId/deliver', authenticate, promo.markGiftDelivered);
+router.put('/promotions/gift/:giftId/return', authenticate, promo.returnGift);
+
+// CALL (SignalWire)
 import * as call from '../controllers/callController.js';
 router.get('/call/token', authenticate, call.getToken);
 router.get('/call/config', authenticate, call.getConfig);
+router.post('/call/make', authenticate, call.makeCall);
+router.get('/call/status/:callSid', authenticate, call.getCallStatus);
 router.post('/call/twiml', call.twiml); // TwiML webhook (no auth)
 
 export default router;

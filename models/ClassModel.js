@@ -68,14 +68,18 @@ class ClassModel extends BaseModel {
     const [rows] = await this.db.query(
       `SELECT s.*, cs.enrolled_at,
               (SELECT COUNT(*) FROM attendance a JOIN sessions ss ON a.session_id = ss.id 
-               WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'present') as present_count,
+               WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'present') as ontime_count,
+              (SELECT COUNT(*) FROM attendance a JOIN sessions ss ON a.session_id = ss.id 
+               WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'late') as late_count,
+              (SELECT COUNT(*) FROM attendance a JOIN sessions ss ON a.session_id = ss.id 
+               WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'excused') as excused_count,
               (SELECT COUNT(*) FROM attendance a JOIN sessions ss ON a.session_id = ss.id 
                WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'absent') as absent_count
        FROM students s
        JOIN class_students cs ON s.id = cs.student_id
        WHERE cs.class_id = ? AND cs.status = 'active'
        ORDER BY s.full_name`,
-      [classId, classId, classId]
+      [classId, classId, classId, classId, classId]
     );
     return rows;
   }
@@ -85,12 +89,25 @@ class ClassModel extends BaseModel {
       'SELECT id FROM class_students WHERE class_id = ? AND student_id = ?',
       [classId, studentId]
     );
-    if (existing.length > 0) throw new Error('Học sinh đã có trong lớp');
+    if (existing.length > 0) {
+      // Reactivate if removed
+      await this.db.query(
+        'UPDATE class_students SET status = "active" WHERE class_id = ? AND student_id = ?',
+        [classId, studentId]
+      );
+    } else {
+      await this.db.query(
+        'INSERT INTO class_students (class_id, student_id, status) VALUES (?, ?, "active")',
+        [classId, studentId]
+      );
+    }
 
+    // Update student status to active
     await this.db.query(
-      'INSERT INTO class_students (class_id, student_id, status) VALUES (?, ?, "active")',
-      [classId, studentId]
+      'UPDATE students SET status = "active" WHERE id = ? AND status IN ("waiting", "pending")',
+      [studentId]
     );
+
     return { success: true };
   }
 

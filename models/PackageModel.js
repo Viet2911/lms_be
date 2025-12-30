@@ -10,7 +10,8 @@ class PackageModel extends BaseModel {
     let sql = `
       SELECT p.*, 
              COALESCE(bp.price, p.base_price) as price,
-             bp.is_active as branch_active
+             bp.is_active as branch_active,
+             COALESCE(p.default_scholarship_months, 0) as default_scholarship_months
       FROM packages p
       LEFT JOIN branch_packages bp ON p.id = bp.package_id AND bp.branch_id = ?
       WHERE p.is_active = 1
@@ -23,12 +24,13 @@ class PackageModel extends BaseModel {
   // Lấy giá gói theo branch
   async getPriceForBranch(packageId, branchId) {
     const [rows] = await this.db.query(`
-      SELECT COALESCE(bp.price, p.base_price) as price
+      SELECT COALESCE(bp.price, p.base_price) as price,
+             COALESCE(p.default_scholarship_months, 0) as default_scholarship_months
       FROM packages p
       LEFT JOIN branch_packages bp ON p.id = bp.package_id AND bp.branch_id = ?
       WHERE p.id = ?
     `, [branchId, packageId]);
-    return rows[0]?.price || 0;
+    return rows[0] || { price: 0, default_scholarship_months: 0 };
   }
 
   // Cập nhật giá theo branch
@@ -56,6 +58,7 @@ class PackageModel extends BaseModel {
   async getAllBranchPrices() {
     const [rows] = await this.db.query(`
       SELECT p.id, p.name, p.code, p.months, p.sessions_count, p.base_price,
+             COALESCE(p.default_scholarship_months, 0) as default_scholarship_months,
              b.id as branch_id, b.name as branch_name, b.code as branch_code,
              COALESCE(bp.price, p.base_price) as price
       FROM packages p
@@ -65,6 +68,15 @@ class PackageModel extends BaseModel {
       ORDER BY b.id, p.months
     `);
     return rows;
+  }
+
+  // Cập nhật học bổng mặc định cho gói
+  async updateDefaultScholarship(packageId, months) {
+    await this.db.query(
+      'UPDATE packages SET default_scholarship_months = ? WHERE id = ?',
+      [months, packageId]
+    );
+    return { success: true };
   }
 
   // Tính số buổi với học bổng

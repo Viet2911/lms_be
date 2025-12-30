@@ -29,19 +29,19 @@ const limiter = rateLimit({
   legacyHeaders: false
 });
 
-const authLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // 10 login attempts per hour
-  message: { success: false, message: 'Quá nhiều lần đăng nhập thất bại, vui lòng thử lại sau 1 giờ' }
-});
+// const authLimiter = rateLimit({
+//   windowMs: 60 * 60 * 1000, // 1 hour
+//   max: 10, // 10 login attempts per hour
+//   message: { success: false, message: 'Quá nhiều lần đăng nhập thất bại, vui lòng thử lại sau 1 giờ' }
+// });
 
-app.use('/api', limiter);
-app.use('/api/auth/login', authLimiter);
+// app.use('/api', limiter);
+// app.use('/api/auth/login', authLimiter);
 
 // CORS
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['https://curious-fenglisu-66f227.netlify.app/'];
+  : ['https://curious-fenglisu-66f227.netlify.app/', 'http://localhost:3000'];
 
 app.use(cors({
   origin: (origin, callback) => {
