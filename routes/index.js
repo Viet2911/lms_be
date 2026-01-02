@@ -145,11 +145,21 @@ router.get('/files/:id', authenticate, file.getById);
 router.post('/files/upload', authenticate, upload.array('files', 10), file.upload);
 router.delete('/files/:id', authenticate, file.remove);
 
-// COMMON
+// COMMON - SUBJECTS
 router.get('/common/subjects', authenticate, common.getSubjects);
-router.get('/common/levels', authenticate, common.getLevels);
+router.get('/common/subjects/:id', authenticate, common.getSubjectById);
 router.post('/common/subjects', authenticate, authorizeRole('ADMIN'), common.createSubject);
+router.put('/common/subjects/:id', authenticate, authorizeRole('ADMIN'), common.updateSubject);
+router.delete('/common/subjects/:id', authenticate, authorizeRole('ADMIN'), common.deleteSubject);
+
+// COMMON - LEVELS
+router.get('/common/levels', authenticate, common.getLevels);
+router.get('/common/levels/:id', authenticate, common.getLevelById);
 router.post('/common/levels', authenticate, authorizeRole('ADMIN'), common.createLevel);
+router.put('/common/levels/:id', authenticate, authorizeRole('ADMIN'), common.updateLevel);
+router.delete('/common/levels/:id', authenticate, authorizeRole('ADMIN'), common.deleteLevel);
+
+// NOTIFICATIONS
 router.get('/notifications', authenticate, common.getNotifications);
 router.put('/notifications/:id/read', authenticate, common.markNotificationRead);
 router.put('/notifications/read-all', authenticate, common.markAllNotificationsRead);
@@ -202,12 +212,15 @@ router.get('/promotions/programs', authenticate, promo.getActivePrograms);
 router.get('/promotions/programs/all', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getAllPrograms);
 router.post('/promotions/programs', authenticate, authorizeRole('ADMIN', 'GDV'), promo.createProgram);
 router.put('/promotions/programs/:id', authenticate, authorizeRole('ADMIN', 'GDV'), promo.updateProgram);
+router.delete('/promotions/programs/:id', authenticate, authorizeRole('ADMIN', 'GDV'), promo.deleteProgram);
 // Vật phẩm KM
 router.get('/promotions/items', authenticate, promo.getAllItems);
 router.get('/promotions/items/in-stock', authenticate, promo.getItemsInStock);
 router.get('/promotions/items/low-stock', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getLowStockItems);
 router.post('/promotions/items', authenticate, authorizeRole('ADMIN', 'GDV'), promo.createItem);
 router.put('/promotions/items/:id', authenticate, authorizeRole('ADMIN', 'GDV'), promo.updateItem);
+router.delete('/promotions/items/:id', authenticate, authorizeRole('ADMIN', 'GDV'), promo.deleteItem);
+router.post('/promotions/items/:id/stock', authenticate, authorizeRole('ADMIN', 'GDV'), promo.addItemStock);
 router.post('/promotions/stock', authenticate, authorizeRole('ADMIN', 'GDV'), promo.updateStock);
 router.get('/promotions/stock/history', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getStockHistory);
 // Học bổng KM
@@ -231,5 +244,25 @@ router.get('/call/config', authenticate, call.getConfig);
 router.post('/call/make', authenticate, call.makeCall);
 router.get('/call/status/:callSid', authenticate, call.getCallStatus);
 router.post('/call/twiml', call.twiml); // TwiML webhook (no auth)
+
+// STUDENT DOCUMENTS
+router.get('/students/:id/documents', authenticate, student.getDocuments);
+router.post('/students/:id/documents', authenticate, upload.single('file'), student.uploadDocument);
+router.delete('/students/:id/documents/:docId', authenticate, student.deleteDocument);
+
+// STUDENT AVATAR
+router.post('/students/:id/avatar', authenticate, upload.single('avatar'), student.uploadAvatar);
+
+// SESSION FEEDBACKS
+router.get('/sessions/:id/feedbacks', authenticate, session.getFeedbacks);
+router.post('/sessions/:id/feedbacks', authenticate, session.saveFeedback);
+router.put('/sessions/:id/feedbacks/:feedbackId', authenticate, session.updateFeedback);
+
+// SYSTEM SETTINGS
+import * as settings from '../controllers/settingsController.js';
+router.get('/settings/payment', authenticate, settings.getPaymentConfig);
+router.post('/settings/payment', authenticate, authorizeRole('ADMIN'), settings.savePaymentConfig);
+router.get('/settings/all', authenticate, authorizeRole('ADMIN'), settings.getAllSettings);
+router.post('/settings', authenticate, authorizeRole('ADMIN'), settings.saveSetting);
 
 export default router;

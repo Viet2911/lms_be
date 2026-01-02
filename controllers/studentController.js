@@ -145,7 +145,7 @@ export const changeStatus = async (req, res, next) => {
 export const confirmPayment = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { amount, paymentMethod, note } = req.body;
+    const { amount, paymentMethod, proofUrl, note } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ success: false, message: 'Số tiền không hợp lệ' });
@@ -154,6 +154,7 @@ export const confirmPayment = async (req, res, next) => {
     const result = await StudentModel.confirmPayment(id, {
       amount,
       paymentMethod: paymentMethod || 'bank_transfer',
+      proofUrl: proofUrl || null,
       note,
       confirmedBy: req.user.id
     });
@@ -261,4 +262,81 @@ export const getEnrollmentForm = async (req, res, next) => {
     console.error('Enrollment form error:', error);
     next(error);
   }
+};
+
+// ==================== DOCUMENTS ====================
+
+// Get student documents
+export const getDocuments = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [docs] = await StudentModel.db.query(`
+      SELECT d.*, u.full_name as uploaded_by_name
+      FROM student_documents d
+      LEFT JOIN users u ON d.uploaded_by = u.id
+      WHERE d.student_id = ?
+      ORDER BY d.created_at DESC
+    `, [id]);
+    res.json({ success: true, data: docs });
+  } catch (error) { next(error); }
+};
+
+// Upload document
+export const uploadDocument = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { document_type, note } = req.body;
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Chưa chọn file' });
+    }
+
+    const [result] = await StudentModel.db.query(`
+      INSERT INTO student_documents (student_id, document_type, file_name, file_url, file_type, file_size, note, uploaded_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      id,
+      document_type || 'other',
+      req.file.originalname,
+      req.file.path, // Cloudinary URL
+      req.file.mimetype,
+      req.file.size,
+      note || null,
+      req.user.id
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Upload thành công',
+      data: { id: result.insertId, file_url: req.file.path }
+    });
+  } catch (error) { next(error); }
+};
+
+// Delete document
+export const deleteDocument = async (req, res, next) => {
+  try {
+    const { id, docId } = req.params;
+    await StudentModel.db.query('DELETE FROM student_documents WHERE id = ? AND student_id = ?', [docId, id]);
+    res.json({ success: true, message: 'Đã xóa tài liệu' });
+  } catch (error) { next(error); }
+};
+
+// Upload avatar
+export const uploadAvatar = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Chưa chọn ảnh' });
+    }
+
+    await StudentModel.db.query('UPDATE students SET avatar_url = ? WHERE id = ?', [req.file.path, id]);
+
+    res.json({
+      success: true,
+      message: 'Cập nhật ảnh đại diện thành công',
+      data: { avatar_url: req.file.path }
+    });
+  } catch (error) { next(error); }
 };

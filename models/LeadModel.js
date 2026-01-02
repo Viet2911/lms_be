@@ -32,13 +32,17 @@ class LeadModel extends BaseModel {
              l.scheduled_time, l.status, l.trial_class_id, l.trial_sessions_max,
              l.trial_sessions_attended, l.converted_student_id, l.rating, l.feedback, 
              l.note, l.source, l.sale_id, l.created_at, l.updated_at,
-             l.actual_revenue, l.deposit_amount, l.fee_total,
+             COALESCE(st.fee_total, l.fee_total, 0) as fee_total,
+             COALESCE(st.actual_revenue, 0) as actual_revenue,
+             COALESCE(st.deposit_amount, l.deposit_amount, 0) as deposit_amount,
+             st.fee_status as student_fee_status,
              b.name as branch_name, b.code as branch_code,
              s.name as subject_name, 
              lv.name as level_name,
              c.class_name as trial_class_name,
              u.full_name as sale_name,
-             st.full_name as converted_student_name
+             st.full_name as converted_student_name,
+             st.student_code as converted_student_code
       FROM leads l
       LEFT JOIN branches b ON l.branch_id = b.id
       LEFT JOIN subjects s ON l.subject_id = s.id
@@ -107,8 +111,9 @@ class LeadModel extends BaseModel {
       LEFT JOIN branches b ON l.branch_id = b.id
       LEFT JOIN subjects s ON l.subject_id = s.id
       WHERE (
-        (YEAR(l.scheduled_date) = ? AND MONTH(l.scheduled_date) = ? AND l.status IN ('scheduled', 'trial'))
-        OR (l.status = 'waiting' AND YEAR(l.updated_at) = ? AND MONTH(l.updated_at) = ?)
+        (YEAR(l.scheduled_date) = ? AND MONTH(l.scheduled_date) = ? 
+         AND l.status IN ('scheduled', 'trial', 'waiting', 'attended'))
+        OR (l.status = 'converted' AND YEAR(l.scheduled_date) = ? AND MONTH(l.scheduled_date) = ?)
       )
     `;
     const params = [year, month, year, month];
@@ -137,7 +142,13 @@ class LeadModel extends BaseModel {
              lv.name as level_name,
              c.id as trial_class_id, c.class_name as trial_class_name,
              u.full_name as sale_name,
-             st.id as converted_student_id, st.full_name as converted_student_name
+             st.id as converted_student_id, 
+             st.full_name as converted_student_name,
+             st.student_code as converted_student_code,
+             COALESCE(st.fee_total, l.fee_total, 0) as fee_total,
+             COALESCE(st.actual_revenue, 0) as actual_revenue,
+             COALESCE(st.deposit_amount, l.deposit_amount, 0) as deposit_amount,
+             st.fee_status as student_fee_status
       FROM leads l
       LEFT JOIN branches b ON l.branch_id = b.id
       LEFT JOIN subjects s ON l.subject_id = s.id
@@ -213,13 +224,15 @@ class LeadModel extends BaseModel {
 
   // Chuyển đổi thành học sinh chính thức
   async convertToStudent(id, studentId, actualRevenue = 0, depositAmount = 0, feeTotal = 0) {
+    // Chỉ lưu thông tin chuyển đổi, KHÔNG lưu doanh thu
+    // Doanh thu sẽ được ghi nhận riêng khi xác nhận thanh toán
     return this.update(id, {
       status: 'converted',
       converted_student_id: studentId,
       converted_at: new Date(),
-      actual_revenue: actualRevenue,
-      deposit_amount: depositAmount,
       fee_total: feeTotal
+      // KHÔNG lưu actual_revenue và deposit_amount ở leads
+      // Thông tin thanh toán được quản lý ở students và revenues table
     });
   }
 

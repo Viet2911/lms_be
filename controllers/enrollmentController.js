@@ -1,4 +1,4 @@
-import EnrollmentFormService from '../services/enrollmentFormService.js';
+import EnrollmentFormService from '../services/enrollmentformService.js';
 import StudentModel from '../models/StudentModel.js';
 import db from '../config/database.js';
 

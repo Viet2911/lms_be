@@ -23,20 +23,20 @@ export const authenticate = async (req, res, next) => {
     }
 
     const permissions = await UserModel.getPermissions(user.role_id);
-    
+
     // Tìm primary branch
     const primaryBranch = user.branches?.find(b => b.is_primary) || user.branches?.[0] || null;
-    
-    req.user = { 
-      id: user.id, 
-      username: user.username, 
-      full_name: user.full_name, 
-      role_id: user.role_id, 
-      role_name: user.role_name, 
+
+    req.user = {
+      id: user.id,
+      username: user.username,
+      full_name: user.full_name,
+      role_id: user.role_id,
+      role_name: user.role_name,
       is_system_wide: user.is_system_wide,
       branches: user.branches || [],
       primaryBranch: primaryBranch,
-      permissions 
+      permissions
     };
     next();
   } catch (error) {
@@ -47,14 +47,23 @@ export const authenticate = async (req, res, next) => {
 };
 
 export const authorize = (...permissions) => (req, res, next) => {
+  console.log(req.user);
+
   if (!req.user) return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
   if (req.user.role_name === 'ADMIN') return next();
   if (permissions.some(p => req.user.permissions.includes(p))) return next();
-  return res.status(403).json({ success: false, message: 'Không có quyền' });
+  console.log('b');
+  return res.status(403).json({ success: false, message: 'Không có 1' });
 };
 
 export const authorizeRole = (...roles) => (req, res, next) => {
+
   if (!req.user) return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
-  if (req.user.role_name === 'ADMIN' || roles.includes(req.user.role_name)) return next();
-  return res.status(403).json({ success: false, message: 'Không có quyền' });
+  console.log(req.user.role_name === "ADMIN");
+  if (req.user.role_name == "ADMIN" || roles.includes(req.user.role_name)) {
+    console.log("a");
+
+    return next();
+  }
+  return res.status(403).json({ success: false, message: 'Không có quyền2' });
 };

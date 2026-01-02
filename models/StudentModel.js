@@ -345,7 +345,7 @@ class StudentModel extends BaseModel {
   }
 
   // Xác nhận đã nhận thanh toán - cập nhật actual_revenue
-  async confirmPayment(studentId, { amount, paymentMethod, note, confirmedBy }) {
+  async confirmPayment(studentId, { amount, paymentMethod, proofUrl, note, confirmedBy }) {
     const conn = await this.db.getConnection();
     try {
       await conn.beginTransaction();
@@ -361,36 +361,45 @@ class StudentModel extends BaseModel {
       }
 
       const student = students[0];
-      const newActualRevenue = (student.actual_revenue || 0) + amount;
-      const feeTotal = student.fee_total || 0;
+      const currentRevenue = parseFloat(student.actual_revenue) || 0;
+      const paymentAmount = parseFloat(amount) || 0;
+      const newActualRevenue = currentRevenue + paymentAmount;
+      const feeTotal = parseFloat(student.fee_total) || 0;
 
       // Xác định trạng thái thanh toán mới
       let newFeeStatus = 'partial';
-      if (newActualRevenue >= feeTotal) {
+      if (newActualRevenue >= feeTotal && feeTotal > 0) {
         newFeeStatus = 'paid';
+      } else if (newActualRevenue <= 0) {
+        newFeeStatus = 'pending';
       }
 
-      // Cập nhật actual_revenue trong students
-      await conn.query(`
+      // Cập nhật actual_revenue và fee_status trong students
+      const [updateResult] = await conn.query(`
         UPDATE students 
         SET actual_revenue = ?, fee_status = ?, updated_at = NOW()
         WHERE id = ?
       `, [newActualRevenue, newFeeStatus, studentId]);
 
+      // Kiểm tra update có thành công không
+      if (updateResult.affectedRows === 0) {
+        throw new Error('Không thể cập nhật thông tin học sinh');
+      }
+
       // Ghi nhận vào revenues (doanh thu)
       await conn.query(`
-        INSERT INTO revenues (branch_id, student_id, ec_id, amount, type, payment_method, note, created_at)
-        VALUES (?, ?, ?, ?, 'tuition', ?, ?, NOW())
-      `, [student.branch_id, studentId, confirmedBy, amount, paymentMethod, note]);
+        INSERT INTO revenues (branch_id, student_id, ec_id, amount, type, payment_method, proof_url, note, created_at)
+        VALUES (?, ?, ?, ?, 'tuition', ?, ?, ?, NOW())
+      `, [student.branch_id, studentId, confirmedBy, paymentAmount, paymentMethod, proofUrl || null, note]);
 
       await conn.commit();
 
       return {
         studentId,
-        previousRevenue: student.actual_revenue || 0,
+        previousRevenue: currentRevenue,
         newRevenue: newActualRevenue,
         feeStatus: newFeeStatus,
-        amountReceived: amount
+        amountReceived: paymentAmount
       };
     } catch (err) {
       await conn.rollback();

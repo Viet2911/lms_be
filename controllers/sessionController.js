@@ -54,7 +54,7 @@ export const generate = async (req, res, next) => {
 export const update = async (req, res, next) => {
   try {
     const { sessionDate, startTime, endTime, teacherId, substituteTeacherId, note } = req.body;
-    
+
     const data = {};
     if (sessionDate) data.session_date = sessionDate;
     if (startTime) data.start_time = startTime;
@@ -72,5 +72,66 @@ export const remove = async (req, res, next) => {
   try {
     await SessionModel.delete(req.params.id);
     res.json({ success: true, message: 'Xóa thành công' });
+  } catch (error) { next(error); }
+};
+
+// ==================== SESSION FEEDBACKS ====================
+
+// Get feedbacks for a session
+export const getFeedbacks = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const [feedbacks] = await SessionModel.db.query(`
+      SELECT f.*, s.full_name as student_name, s.student_code,
+             u.full_name as created_by_name
+      FROM session_feedbacks f
+      JOIN students s ON f.student_id = s.id
+      LEFT JOIN users u ON f.created_by = u.id
+      WHERE f.session_id = ?
+      ORDER BY s.full_name
+    `, [id]);
+    res.json({ success: true, data: feedbacks });
+  } catch (error) { next(error); }
+};
+
+// Save feedback for a student in a session
+export const saveFeedback = async (req, res, next) => {
+  try {
+    const { id } = req.params; // session_id
+    const { student_id, rating, feedback, homework_assigned, parent_notified } = req.body;
+
+    if (!student_id) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin học sinh' });
+    }
+
+    // Upsert - insert or update
+    await SessionModel.db.query(`
+      INSERT INTO session_feedbacks (session_id, student_id, rating, feedback, homework_assigned, parent_notified, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        rating = VALUES(rating),
+        feedback = VALUES(feedback),
+        homework_assigned = VALUES(homework_assigned),
+        parent_notified = VALUES(parent_notified),
+        updated_at = NOW()
+    `, [id, student_id, rating || null, feedback || null, homework_assigned || false, parent_notified || false, req.user.id]);
+
+    res.json({ success: true, message: 'Đã lưu nhận xét' });
+  } catch (error) { next(error); }
+};
+
+// Update feedback
+export const updateFeedback = async (req, res, next) => {
+  try {
+    const { feedbackId } = req.params;
+    const { rating, feedback, homework_assigned, parent_notified } = req.body;
+
+    await SessionModel.db.query(`
+      UPDATE session_feedbacks 
+      SET rating = ?, feedback = ?, homework_assigned = ?, parent_notified = ?, updated_at = NOW()
+      WHERE id = ?
+    `, [rating, feedback, homework_assigned || false, parent_notified || false, feedbackId]);
+
+    res.json({ success: true, message: 'Đã cập nhật nhận xét' });
   } catch (error) { next(error); }
 };

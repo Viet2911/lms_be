@@ -36,6 +36,15 @@ export const updateProgram = async (req, res, next) => {
     } catch (error) { next(error); }
 };
 
+// Xóa CTKM
+export const deleteProgram = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        await PromotionModel.db.query('DELETE FROM promotion_programs WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Đã xóa chương trình' });
+    } catch (error) { next(error); }
+};
+
 // ==================== VẬT PHẨM KM ====================
 
 // Lấy tất cả vật phẩm
@@ -67,11 +76,48 @@ export const createItem = async (req, res, next) => {
 export const updateItem = async (req, res, next) => {
     try {
         const { id } = req.params;
+        const { name, code, category, description, stock_quantity, is_active } = req.body;
         await PromotionModel.db.query(`
-      UPDATE promotion_items SET name = ?, category = ?, description = ?, unit = ?, min_stock = ?, is_active = ?
+      UPDATE promotion_items SET name = ?, code = ?, category = ?, description = ?, stock_quantity = ?, is_active = ?
       WHERE id = ?
-    `, [req.body.name, req.body.category, req.body.description, req.body.unit, req.body.min_stock, req.body.is_active, id]);
+    `, [name, code, category, description, stock_quantity, is_active, id]);
         res.json({ success: true, message: 'Cập nhật thành công' });
+    } catch (error) { next(error); }
+};
+
+// Xóa vật phẩm
+export const deleteItem = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        // Check if item has been given
+        const [used] = await PromotionModel.db.query('SELECT given_quantity FROM promotion_items WHERE id = ?', [id]);
+        if (used[0]?.given_quantity > 0) {
+            return res.status(400).json({ success: false, message: 'Không thể xóa vật phẩm đã phát' });
+        }
+        await PromotionModel.db.query('DELETE FROM promotion_items WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Đã xóa vật phẩm' });
+    } catch (error) { next(error); }
+};
+
+// Thêm tồn kho cho vật phẩm
+export const addItemStock = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { quantity, note } = req.body;
+
+        // Update stock
+        await PromotionModel.db.query(
+            'UPDATE promotion_items SET stock_quantity = stock_quantity + ? WHERE id = ?',
+            [quantity, id]
+        );
+
+        // Log history
+        await PromotionModel.db.query(
+            'INSERT INTO promotion_item_stocks (item_id, quantity, type, note, created_by) VALUES (?, ?, ?, ?, ?)',
+            [id, quantity, 'import', note || 'Nhập kho', req.user.id]
+        );
+
+        res.json({ success: true, message: 'Đã thêm ' + quantity + ' vào kho' });
     } catch (error) { next(error); }
 };
 
@@ -204,12 +250,23 @@ export const getConvertData = async (req, res, next) => {
         const items = await PromotionModel.getItemsInStock();
         const scholarships = await PromotionModel.getAllScholarships();
 
+        // Lấy packages từ database
+        const [packages] = await PromotionModel.db.query(
+            `SELECT id, code, name, months, sessions_count as total_sessions, price, 
+              default_scholarship_months, is_active
+       FROM packages WHERE is_active = 1 ORDER BY months ASC`
+        );
+
         res.json({
             success: true,
             data: {
-                programs,      // Chương trình KM
-                items,         // Vật phẩm (quà tặng)
-                scholarships   // Học bổng
+                programs,           // Chương trình KM
+                promotionPrograms: programs, // Alias cho frontend
+                items,              // Vật phẩm (quà tặng)
+                giftItems: items,   // Alias cho frontend
+                scholarships,       // Học bổng
+                packages,           // Gói học phí
+                tuitionPackages: packages // Alias cho frontend
             }
         });
     } catch (error) { next(error); }

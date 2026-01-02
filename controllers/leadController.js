@@ -1,5 +1,6 @@
 import LeadModel from '../models/LeadModel.js';
 import StudentModel from '../models/StudentModel.js';
+import PromotionModel from '../models/PromotionModel.js';
 import telegramService from '../services/telegramService.js';
 import { getBranchFilter, getCreateBranchId, getBranchCode } from '../utils/branchHelper.js';
 
@@ -355,7 +356,7 @@ export const convertToStudent = async (req, res, next) => {
       packageId, feeOriginal, feeDiscount, feeTotal,
       // Scholarship
       scholarshipMonths, defaultScholarshipMonths, scholarshipNeedsApproval,
-      // Payment - KHÔNG lưu doanh thu ngay, chỉ lưu thông tin
+      // Payment
       paymentStatus, depositAmount, paidAmount,
       // Promo
       programId, gifts,
@@ -374,6 +375,20 @@ export const convertToStudent = async (req, res, next) => {
     const giftsStr = gifts && gifts.length > 0
       ? gifts.map(g => g.name).join(', ')
       : '';
+
+    // Tính tiền cọc (nếu có)
+    const deposit = parseFloat(depositAmount) || 0;
+    const paid = parseFloat(paidAmount) || 0;
+    const totalPaid = deposit + paid; // Tổng tiền đã thu = cọc + thanh toán
+
+    // Xác định fee_status dựa trên số tiền đã đóng
+    let feeStatus = 'pending';
+    const feeTotalNum = parseFloat(feeTotal) || 0;
+    if (totalPaid >= feeTotalNum && feeTotalNum > 0) {
+      feeStatus = 'paid';
+    } else if (totalPaid > 0) {
+      feeStatus = 'partial';
+    }
 
     const studentData = {
       branch_id: lead.branch_id,
@@ -399,9 +414,11 @@ export const convertToStudent = async (req, res, next) => {
       fee_total: feeTotal || 0,
       // Scholarship
       scholarship_months: scholarshipMonths || 0,
-      // Payment - actual_revenue = 0, sẽ cập nhật khi xác nhận thanh toán
-      actual_revenue: 0,
-      fee_status: 'pending', // Chưa thanh toán
+      // Payment - actual_revenue = tổng tiền đã thu
+      deposit_amount: deposit,
+      actual_revenue: totalPaid,
+      fee_status: feeStatus,
+      payment_status: feeStatus,
       // Gifts & Note
       gifts: giftsStr,
       note: note || null,
@@ -413,19 +430,40 @@ export const convertToStudent = async (req, res, next) => {
 
     const student = await StudentModel.create(studentData);
 
-    // Cập nhật lead - KHÔNG lưu actual_revenue
-    await LeadModel.convertToStudent(id, student.id, 0, depositAmount || 0, feeTotal || 0);
+    // Ghi nhận vào revenues nếu có thanh toán
+    if (totalPaid > 0) {
+      const pool = (await import('../config/database.js')).default;
+      await pool.query(`
+          INSERT INTO revenues (branch_id, student_id, ec_id, amount, type, payment_method, note, created_at)
+          VALUES (?, ?, ?, ?, 'tuition', 'cash', ?, NOW())
+        `, [lead.branch_id, student.id, req.user.id, totalPaid, deposit > 0 ? 'Tiền cọc khi convert' : 'Thanh toán khi convert']);
+    }
+
+    // Trừ quà tặng trong kho nếu có
+    if (gifts && gifts.length > 0) {
+      for (const gift of gifts) {
+        if (gift.id) {
+          await PromotionModel.decreaseItemStock(gift.id, 1, student.id, req.user.id);
+        }
+      }
+    }
+
+    // Cập nhật lead
+    await LeadModel.convertToStudent(id, student.id, totalPaid, deposit, feeTotal || 0);
 
     // Gửi thông báo Telegram cho CM
     try {
+      const remaining = feeTotalNum - totalPaid;
       await telegramService.sendMessage(
         `🎉 <b>Học viên mới${classId ? '' : ' chờ xếp lớp'}!</b>\n` +
         `👶 HS: ${studentName || lead.student_name}\n` +
         `📋 Mã: ${studentCode}\n` +
         `👤 PH: ${customerName || lead.customer_name} - ${customerPhone || lead.customer_phone}\n` +
         `📚 Môn: ${lead.subject_name || '-'}\n` +
-        `💰 Học phí: ${(feeTotal || 0).toLocaleString('vi-VN')}đ (Chờ thanh toán)\n` +
-        `🎁 HB: ${scholarshipMonths || 0} tháng\n` +
+        `💰 Học phí: ${feeTotalNum.toLocaleString('vi-VN')}đ\n` +
+        `💵 Đã đóng: ${totalPaid.toLocaleString('vi-VN')}đ\n` +
+        `📌 Còn nợ: ${remaining.toLocaleString('vi-VN')}đ\n` +
+        `🎁 Quà: ${giftsStr || 'Không'}\n` +
         `👨‍💼 EC: ${lead.sale_name || '-'}\n` +
         (classId ? '' : `⏰ CM vui lòng xếp lớp!`)
       );
@@ -441,7 +479,9 @@ export const convertToStudent = async (req, res, next) => {
         studentCode: studentCode,
         full_name: studentName || lead.student_name,
         fee_total: feeTotal || 0,
-        actual_revenue: 0 // Chưa thanh toán
+        deposit_amount: deposit,
+        actual_revenue: totalPaid,
+        remaining: feeTotalNum - totalPaid
       }
     });
   } catch (error) { next(error); }
