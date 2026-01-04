@@ -78,10 +78,10 @@ class AttendanceModel extends BaseModel {
         const [existing] = await conn.query(existingQuery, existingParams);
 
         if (existing.length > 0) {
-          await conn.query('UPDATE attendance SET status = ?, note = ? WHERE id = ?', [dbStatus, note || '', existing[0].id]);
+          await conn.query('UPDATE attendance SET status = ?, note = ?, check_in_by = ? WHERE id = ?', [dbStatus, note || '', markedBy, existing[0].id]);
         } else {
           await conn.query(
-            `INSERT INTO attendance (session_id, student_id, trial_student_id, status, note, marked_by)
+            `INSERT INTO attendance (session_id, student_id, trial_student_id, status, note, check_in_by)
              VALUES (?, ?, ?, ?, ?, ?)`,
             [sessionId, studentId || null, trialStudentId || null, dbStatus, note || '', markedBy]
           );

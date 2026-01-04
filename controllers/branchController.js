@@ -39,15 +39,26 @@ export const getById = async (req, res) => {
 // POST /api/branches (Admin only)
 export const create = async (req, res) => {
   try {
-    const { code, name, address, phone, email, manager_name } = req.body;
-    
+    const { code, name, address, phone, email, manager_name, bank_code, bank_account, bank_name } = req.body;
+
     if (!code || !name) {
       return res.status(400).json({ success: false, message: 'Mã và tên cơ sở là bắt buộc' });
     }
 
-    const result = await BranchModel.create({ code, name, address, phone, email, manager_name });
-    res.status(201).json({ success: true, data: { id: result.insertId }, message: 'Tạo cơ sở thành công' });
+    // Build data object với only có các field có giá trị
+    const data = { code, name };
+    if (address) data.address = address;
+    if (phone) data.phone = phone;
+    if (email) data.email = email;
+    if (manager_name) data.manager_name = manager_name;
+    if (bank_code) data.bank_code = bank_code;
+    if (bank_account) data.bank_account = bank_account;
+    if (bank_name) data.bank_name = bank_name;
+
+    const result = await BranchModel.create(data);
+    res.status(201).json({ success: true, data: { id: result.id }, message: 'Tạo cơ sở thành công' });
   } catch (error) {
+    console.error('Branch create error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -55,10 +66,25 @@ export const create = async (req, res) => {
 // PUT /api/branches/:id (Admin only)
 export const update = async (req, res) => {
   try {
-    const { code, name, address, phone, email, manager_name, is_active } = req.body;
-    await BranchModel.update(req.params.id, { code, name, address, phone, email, manager_name, is_active });
+    const { code, name, address, phone, email, manager_name, is_active, bank_code, bank_account, bank_name } = req.body;
+
+    // Build data object với only các field được gửi lên
+    const data = {};
+    if (code !== undefined) data.code = code;
+    if (name !== undefined) data.name = name;
+    if (address !== undefined) data.address = address;
+    if (phone !== undefined) data.phone = phone;
+    if (email !== undefined) data.email = email;
+    if (manager_name !== undefined) data.manager_name = manager_name;
+    if (is_active !== undefined) data.is_active = is_active;
+    if (bank_code !== undefined) data.bank_code = bank_code;
+    if (bank_account !== undefined) data.bank_account = bank_account;
+    if (bank_name !== undefined) data.bank_name = bank_name;
+
+    await BranchModel.update(req.params.id, data);
     res.json({ success: true, message: 'Cập nhật cơ sở thành công' });
   } catch (error) {
+    console.error('Branch update error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -88,7 +114,7 @@ export const getUserBranches = async (req, res) => {
 export const setUserBranches = async (req, res) => {
   try {
     const { branch_ids, primary_branch_id } = req.body;
-    
+
     if (!branch_ids || branch_ids.length === 0) {
       return res.status(400).json({ success: false, message: 'Cần chọn ít nhất 1 cơ sở' });
     }

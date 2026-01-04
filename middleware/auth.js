@@ -50,7 +50,7 @@ export const authorize = (...permissions) => (req, res, next) => {
   console.log(req.user);
 
   if (!req.user) return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
-  if (req.user.role_name === 'ADMIN') return next();
+  if (req.user.role_name === 'ADMIN' || req.user.role_name === "GDV") return next();
   if (permissions.some(p => req.user.permissions.includes(p))) return next();
   console.log('b');
   return res.status(403).json({ success: false, message: 'Không có 1' });
@@ -59,7 +59,7 @@ export const authorize = (...permissions) => (req, res, next) => {
 export const authorizeRole = (...roles) => (req, res, next) => {
 
   if (!req.user) return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
-  console.log(req.user.role_name === "ADMIN");
+  console.log(req.user.role_name === "ADMIN" || req.user.role_name === "GDV");
   if (req.user.role_name == "ADMIN" || roles.includes(req.user.role_name)) {
     console.log("a");
 

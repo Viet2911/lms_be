@@ -70,7 +70,7 @@ export const create = async (req, res, next) => {
       full_name: fullName, birth_year: birthYear, gender, address,
       parent_name: parentName, parent_phone: parentPhone, parent_email: parentEmail,
       subject_id: subjectId || null, level_id: levelId || null,
-      learning_path: learningPath, note, sale_id: req.user.id, status: 'active'
+      note, sale_id: req.user.id, status: 'active'
     });
 
     res.status(201).json({ success: true, message: 'Thêm học sinh thành công', data: student });
@@ -79,7 +79,7 @@ export const create = async (req, res, next) => {
 
 export const update = async (req, res, next) => {
   try {
-    const { fullName, birthYear, gender, address, parentName, parentPhone, parentEmail, subjectId, levelId, learningPath, status, note } = req.body;
+    const { fullName, birthYear, gender, address, parentName, parentPhone, parentEmail, subjectId, levelId, status, note } = req.body;
 
     const existing = await StudentModel.findById(req.params.id);
     if (!existing) return res.status(404).json({ success: false, message: 'Không tìm thấy' });
@@ -98,7 +98,6 @@ export const update = async (req, res, next) => {
     if (parentEmail !== undefined) data.parent_email = parentEmail;
     if (subjectId !== undefined) data.subject_id = subjectId || null;
     if (levelId !== undefined) data.level_id = levelId || null;
-    if (learningPath !== undefined) data.learning_path = learningPath;
     if (status) data.status = status;
     if (note !== undefined) data.note = note;
 
