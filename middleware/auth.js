@@ -59,6 +59,8 @@ export const authorize = (...permissions) => (req, res, next) => {
 export const authorizeRole = (...roles) => (req, res, next) => {
 
   if (!req.user) return res.status(401).json({ success: false, message: 'Chưa đăng nhập' });
+  console.log(req.user.role_name);
+
   console.log(req.user.role_name === "ADMIN" || req.user.role_name === "GDV");
   if (req.user.role_name == "ADMIN" || roles.includes(req.user.role_name)) {
     console.log("a");
