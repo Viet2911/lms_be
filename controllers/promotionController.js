@@ -250,9 +250,9 @@ export const getConvertData = async (req, res, next) => {
         const items = await PromotionModel.getItemsInStock();
         const scholarships = await PromotionModel.getAllScholarships();
 
-        // Lấy packages từ database
+        // Lấy packages từ database - use base_price
         const [packages] = await PromotionModel.db.query(
-            `SELECT id, code, name, months, sessions_count as total_sessions, price, 
+            `SELECT id, code, name, months, sessions_count as total_sessions, base_price as price, 
               default_scholarship_months, is_active
        FROM packages WHERE is_active = 1 ORDER BY months ASC`
         );

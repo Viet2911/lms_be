@@ -434,9 +434,9 @@ export const convertToStudent = async (req, res, next) => {
     if (totalPaid > 0) {
       const pool = (await import('../config/database.js')).default;
       await pool.query(`
-          INSERT INTO revenues (branch_id, student_id, ec_id, amount, type, payment_method, note, created_at)
-          VALUES (?, ?, ?, ?, 'tuition', 'cash', ?, NOW())
-        `, [lead.branch_id, student.id, req.user.id, totalPaid, deposit > 0 ? 'Tiền cọc khi convert' : 'Thanh toán khi convert']);
+        INSERT INTO revenues (branch_id, student_id, ec_id, amount, type, payment_method, note, created_at)
+        VALUES (?, ?, ?, ?, 'tuition', 'cash', ?, NOW())
+      `, [lead.branch_id, student.id, req.user.id, totalPaid, deposit > 0 ? 'Tiền cọc khi convert' : 'Thanh toán khi convert']);
     }
 
     // Trừ quà tặng trong kho nếu có
@@ -535,5 +535,187 @@ export const getCallLogs = async (req, res, next) => {
     const { id } = req.params;
     const logs = await LeadModel.getCallLogs(id);
     res.json({ success: true, data: logs });
+  } catch (error) { next(error); }
+};
+
+// ============ TRIAL REPORT ============
+
+// Get trial attendance report
+export const getTrialReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, source, status, search, page = 1, limit = 50 } = req.query;
+    const offset = (page - 1) * limit;
+
+    // Main query - leads that have scheduled or attended trials
+    // Dùng scheduled_date cho ngày hẹn, updated_at cho ngày đến (khi status thay đổi)
+    let sql = `
+      SELECT 
+        l.id, l.student_name, l.customer_name, l.customer_phone, l.source,
+        l.status, l.scheduled_date, 
+        CASE WHEN l.status IN ('attended', 'waiting', 'converted') THEN DATE(l.updated_at) ELSE NULL END as attended_date,
+        l.note, l.trial_sessions_attended,
+        b.name as branch_name,
+        u.full_name as ec_name
+      FROM leads l
+      LEFT JOIN branches b ON l.branch_id = b.id
+      LEFT JOIN users u ON l.sale_id = u.id
+      WHERE l.status IN ('scheduled', 'attended', 'waiting', 'converted')
+    `;
+    const params = [];
+
+    // Date filter - by scheduled_date hoặc updated_at (ngày đến)
+    if (start_date) {
+      sql += ' AND (l.scheduled_date >= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) >= ?))';
+      params.push(start_date, start_date);
+    }
+    if (end_date) {
+      sql += ' AND (l.scheduled_date <= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) <= ?))';
+      params.push(end_date, end_date);
+    }
+    if (branch_id) {
+      sql += ' AND l.branch_id = ?';
+      params.push(branch_id);
+    }
+    if (source) {
+      sql += ' AND l.source = ?';
+      params.push(source);
+    }
+    if (status) {
+      sql += ' AND l.status = ?';
+      params.push(status);
+    }
+    if (search) {
+      sql += ' AND (l.student_name LIKE ? OR l.customer_name LIKE ? OR l.customer_phone LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    // Count total
+    const countSql = sql.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) as total FROM');
+    const [countResult] = await LeadModel.db.query(countSql, params);
+    const total = countResult[0]?.total || 0;
+
+    // Add pagination
+    sql += ' ORDER BY COALESCE(l.updated_at, l.scheduled_date) DESC LIMIT ? OFFSET ?';
+    params.push(parseInt(limit), offset);
+
+    const [rows] = await LeadModel.db.query(sql, params);
+
+    // Summary query
+    let summarySql = `
+      SELECT 
+        COUNT(*) as total_scheduled,
+        COUNT(CASE WHEN status IN ('attended', 'waiting', 'converted') THEN 1 END) as attended,
+        COUNT(CASE WHEN status = 'converted' THEN 1 END) as converted,
+        COUNT(CASE WHEN status = 'waiting' THEN 1 END) as waiting
+      FROM leads
+      WHERE status IN ('scheduled', 'attended', 'waiting', 'converted')
+    `;
+    const summaryParams = [];
+
+    if (start_date) {
+      summarySql += ' AND (scheduled_date >= ? OR (status IN ("attended", "waiting", "converted") AND DATE(updated_at) >= ?))';
+      summaryParams.push(start_date, start_date);
+    }
+    if (end_date) {
+      summarySql += ' AND (scheduled_date <= ? OR (status IN ("attended", "waiting", "converted") AND DATE(updated_at) <= ?))';
+      summaryParams.push(end_date, end_date);
+    }
+    if (branch_id) {
+      summarySql += ' AND branch_id = ?';
+      summaryParams.push(branch_id);
+    }
+
+    const [summaryResult] = await LeadModel.db.query(summarySql, summaryParams);
+
+    res.json({
+      success: true,
+      data: rows,
+      summary: {
+        scheduled: summaryResult[0]?.total_scheduled || 0,
+        attended: summaryResult[0]?.attended || 0,
+        converted: summaryResult[0]?.converted || 0,
+        waiting: summaryResult[0]?.waiting || 0
+      },
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / limit)
+      }
+    });
+  } catch (error) { next(error); }
+};
+
+// Export trial report as CSV
+export const exportTrialReport = async (req, res, next) => {
+  try {
+    const { start_date, end_date, branch_id, source, status } = req.query;
+
+    let sql = `
+      SELECT 
+        l.student_name as 'Tên học sinh',
+        l.customer_name as 'Tên phụ huynh',
+        l.customer_phone as 'SĐT',
+        l.source as 'Nguồn',
+        b.name as 'Cơ sở',
+        DATE_FORMAT(l.scheduled_date, '%d/%m/%Y') as 'Ngày hẹn',
+        CASE WHEN l.status IN ('attended', 'waiting', 'converted') 
+          THEN DATE_FORMAT(l.updated_at, '%d/%m/%Y') ELSE '' END as 'Ngày đến',
+        l.trial_sessions_attended as 'Số buổi TN',
+        CASE l.status 
+          WHEN 'attended' THEN 'Đã đến'
+          WHEN 'converted' THEN 'Đã chuyển đổi'
+          WHEN 'waiting' THEN 'Chờ xử lý'
+          WHEN 'scheduled' THEN 'Đã hẹn'
+          ELSE l.status
+        END as 'Trạng thái',
+        u.full_name as 'EC phụ trách',
+        l.note as 'Ghi chú'
+      FROM leads l
+      LEFT JOIN branches b ON l.branch_id = b.id
+      LEFT JOIN users u ON l.sale_id = u.id
+      WHERE l.status IN ('scheduled', 'attended', 'waiting', 'converted')
+    `;
+    const params = [];
+
+    if (start_date) {
+      sql += ' AND (l.scheduled_date >= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) >= ?))';
+      params.push(start_date, start_date);
+    }
+    if (end_date) {
+      sql += ' AND (l.scheduled_date <= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) <= ?))';
+      params.push(end_date, end_date);
+    }
+    if (branch_id) {
+      sql += ' AND l.branch_id = ?';
+      params.push(branch_id);
+    }
+    if (source) {
+      sql += ' AND l.source = ?';
+      params.push(source);
+    }
+    if (status) {
+      sql += ' AND l.status = ?';
+      params.push(status);
+    }
+
+    sql += ' ORDER BY COALESCE(l.updated_at, l.scheduled_date) DESC';
+
+    const [rows] = await LeadModel.db.query(sql, params);
+
+    // Generate CSV
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'Không có dữ liệu' });
+    }
+
+    const headers = Object.keys(rows[0]);
+    const csvContent = '\uFEFF' + // BOM for UTF-8
+      headers.join(',') + '\n' +
+      rows.map(row => headers.map(h => `"${(row[h] || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
+
+    const filename = `bao-cao-trai-nghiem-${start_date || 'all'}-${end_date || 'all'}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csvContent);
   } catch (error) { next(error); }
 };

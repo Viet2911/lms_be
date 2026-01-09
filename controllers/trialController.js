@@ -2,10 +2,12 @@ import TrialModel from '../models/TrialModel.js';
 import ExperienceModel from '../models/ExperienceModel.js';
 import StudentModel from '../models/StudentModel.js';
 import { getBranchFilter, getBranchCode } from '../utils/branchHelper.js';
+import pool from '../config/database.js';
 
 export const getAll = async (req, res, next) => {
   try {
     const { status, search, page = 1, limit = 20 } = req.query;
+    // EC and TEACHER can also view trials
     const saleId = req.user.role_name === 'SALE' ? req.user.id : null;
     const branchId = getBranchFilter(req);
     const result = await TrialModel.findAllWithRelations({ status, search, saleId, branchId, page, limit });
@@ -43,18 +45,18 @@ export const create = async (req, res, next) => {
 
     const trial = await TrialModel.create({
       branch_id: exp.branch_id,
-      code: TrialModel.generateCode(branchCode), 
+      code: TrialModel.generateCode(branchCode),
       experience_id: experienceId,
-      full_name: exp.student_name, 
+      full_name: exp.student_name,
       birth_year: exp.student_birth_year,
-      parent_name: exp.customer_name, 
-      parent_phone: exp.customer_phone, 
+      parent_name: exp.customer_name,
+      parent_phone: exp.customer_phone,
       parent_email: exp.customer_email,
-      subject_id: exp.subject_id, 
+      subject_id: exp.subject_id,
       level_id: exp.level_id,
-      sale_id: req.user.id, 
-      status: 'active', 
-      sessions_attended: 0, 
+      sale_id: req.user.id,
+      status: 'active',
+      sessions_attended: 0,
       max_sessions: 3
     });
 
@@ -66,7 +68,7 @@ export const create = async (req, res, next) => {
 export const update = async (req, res, next) => {
   try {
     const { fullName, birthYear, parentName, parentPhone, parentEmail, subjectId, levelId, status, note } = req.body;
-    
+
     const data = {};
     if (fullName) data.full_name = fullName;
     if (birthYear) data.birth_year = birthYear;
@@ -83,10 +85,132 @@ export const update = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+// Checkin trial - EC and Teacher can mark attendance
+export const checkinTrial = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { check_type, note } = req.body; // attended, cancelled, no_show
+
+    // Validate check_type
+    if (!['attended', 'cancelled', 'no_show'].includes(check_type)) {
+      return res.status(400).json({ success: false, message: 'Loại checkin không hợp lệ' });
+    }
+
+    // Check if trial exists
+    const trial = await TrialModel.findByIdWithRelations(id);
+    if (!trial) {
+      return res.status(404).json({ success: false, message: 'Không tìm thấy học sinh thử' });
+    }
+
+    // Check if already checked in
+    const [existing] = await pool.query(
+      'SELECT id FROM trial_checkins WHERE trial_id = ?',
+      [id]
+    );
+
+    if (existing[0]) {
+      // Update existing checkin
+      await pool.query(
+        'UPDATE trial_checkins SET check_type = ?, checked_by = ?, check_time = NOW(), note = ? WHERE trial_id = ?',
+        [check_type, req.user.id, note, id]
+      );
+    } else {
+      // Create new checkin
+      await pool.query(
+        'INSERT INTO trial_checkins (trial_id, checked_by, check_type, note) VALUES (?, ?, ?, ?)',
+        [id, req.user.id, check_type, note]
+      );
+    }
+
+    // Update trial sessions_attended if attended
+    if (check_type === 'attended') {
+      await pool.query(
+        'UPDATE trial_students SET sessions_attended = sessions_attended + 1 WHERE id = ?',
+        [id]
+      );
+    }
+
+    // Update trial status if cancelled or no_show
+    if (check_type === 'cancelled') {
+      await TrialModel.update(id, { status: 'cancelled' });
+    }
+
+    res.json({
+      success: true,
+      message: check_type === 'attended' ? 'Đã đánh dấu học sinh đến' :
+        check_type === 'cancelled' ? 'Đã hủy lịch học thử' : 'Đã đánh dấu học sinh không đến'
+    });
+  } catch (error) { next(error); }
+};
+
+// Get trial checkin history
+export const getTrialCheckins = async (req, res, next) => {
+  try {
+    const { date, branch_id } = req.query;
+    const targetDate = date || new Date().toISOString().split('T')[0];
+
+    let sql = `
+      SELECT tc.*, ts.full_name as student_name, ts.parent_phone,
+             u.full_name as checked_by_name,
+             e.trial_date, e.trial_time,
+             s.name as subject_name
+      FROM trial_checkins tc
+      JOIN trial_students ts ON tc.trial_id = ts.id
+      LEFT JOIN experience_schedules e ON ts.experience_id = e.id
+      LEFT JOIN users u ON tc.checked_by = u.id
+      LEFT JOIN subjects s ON ts.subject_id = s.id
+      WHERE DATE(tc.check_time) = ?
+    `;
+    const params = [targetDate];
+
+    if (branch_id) {
+      sql += ' AND ts.branch_id = ?';
+      params.push(branch_id);
+    }
+
+    sql += ' ORDER BY tc.check_time DESC';
+
+    const [rows] = await pool.query(sql, params);
+    res.json({ success: true, data: rows });
+  } catch (error) { next(error); }
+};
+
+// Get today's trials for checkin
+export const getTodayTrials = async (req, res, next) => {
+  try {
+    const branchId = getBranchFilter(req);
+    const today = new Date().toISOString().split('T')[0];
+
+    let sql = `
+      SELECT ts.*, e.trial_date, e.trial_time,
+             s.name as subject_name,
+             tc.check_type, tc.check_time, tc.checked_by,
+             u.full_name as checked_by_name
+      FROM trial_students ts
+      LEFT JOIN experience_schedules e ON ts.experience_id = e.id
+      LEFT JOIN subjects s ON ts.subject_id = s.id
+      LEFT JOIN trial_checkins tc ON ts.id = tc.trial_id
+      LEFT JOIN users u ON tc.checked_by = u.id
+      WHERE ts.status = 'active' AND e.trial_date = ?
+    `;
+    const params = [today];
+
+    if (branchId) {
+      sql += ' AND ts.branch_id = ?';
+      params.push(branchId);
+    }
+
+    sql += ' ORDER BY e.trial_time';
+
+    const [rows] = await pool.query(sql, params);
+    res.json({ success: true, data: rows });
+  } catch (error) { next(error); }
+};
+
 export const convert = async (req, res, next) => {
   try {
     const { fullName, birthYear, gender, address, parentName, parentPhone, parentEmail, subjectId, levelId, learningPath } = req.body;
-    
+
     const trial = await TrialModel.findByIdWithRelations(req.params.id);
     if (!trial) return res.status(404).json({ success: false, message: 'Không tìm thấy' });
     if (trial.status === 'converted') return res.status(400).json({ success: false, message: 'Đã được chuyển đổi' });
@@ -115,10 +239,10 @@ export const convert = async (req, res, next) => {
     if (!finalData.levelId) missingFields.push('Cấp độ');
 
     if (missingFields.length > 0) {
-      return res.status(400).json({ 
-        success: false, 
+      return res.status(400).json({
+        success: false,
         message: `Thiếu thông tin bắt buộc: ${missingFields.join(', ')}`,
-        missingFields 
+        missingFields
       });
     }
 

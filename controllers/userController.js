@@ -34,7 +34,7 @@ export const getRoles = async (req, res, next) => {
 
 export const create = async (req, res, next) => {
   try {
-    const { username, email, password, fullName, full_name, phone, roleId, role_id, branch_ids, sendEmail } = req.body;
+    const { username, email, password, fullName, full_name, phone, roleId, role_id, branch_ids, manager_id, sendEmail } = req.body;
     const finalFullName = fullName || full_name;
     const finalRoleId = roleId || role_id;
 
@@ -43,7 +43,7 @@ export const create = async (req, res, next) => {
     }
 
     const user = await UserModel.createUser({
-      username, email, password, full_name: finalFullName, phone, role_id: finalRoleId
+      username, email, password, full_name: finalFullName, phone, role_id: finalRoleId, manager_id
     });
 
     // Gán branches cho user
@@ -51,9 +51,13 @@ export const create = async (req, res, next) => {
       await UserModel.assignBranches(user.id, branch_ids);
     }
 
-    // Gửi email thông tin tài khoản nếu có email và được yêu cầu
+    // Gửi email thông tin tài khoản
+    // KHÔNG gửi email trong production để tránh spam và bảo mật
     let emailSent = false;
-    if (email && sendEmail !== false) {
+    const isProduction = process.env.NODE_ENV === 'production';
+    const shouldSendEmail = email && sendEmail === true && !isProduction;
+
+    if (shouldSendEmail) {
       try {
         const result = await emailService.sendAccountCreated(
           email,
@@ -72,11 +76,19 @@ export const create = async (req, res, next) => {
     }
 
     delete user.password;
+
+    let message = 'Tạo user thành công';
+    if (isProduction && email) {
+      message += ' (Email không được gửi trong production)';
+    } else if (emailSent) {
+      message += ' và đã gửi email thông tin tài khoản';
+    } else if (email && sendEmail) {
+      message += ' (Email chưa được gửi - kiểm tra cấu hình SMTP)';
+    }
+
     res.status(201).json({
       success: true,
-      message: emailSent
-        ? 'Tạo user thành công và đã gửi email thông tin tài khoản'
-        : 'Tạo user thành công' + (email ? ' (Email chưa được gửi - kiểm tra cấu hình SMTP)' : ''),
+      message,
       data: user,
       emailSent
     });
@@ -85,13 +97,14 @@ export const create = async (req, res, next) => {
 
 export const update = async (req, res, next) => {
   try {
-    const { fullName, full_name, email, phone, roleId, role_id, isActive, is_active, branch_ids } = req.body;
+    const { fullName, full_name, email, phone, roleId, role_id, isActive, is_active, branch_ids, manager_id } = req.body;
     const data = {};
     if (fullName || full_name) data.full_name = fullName || full_name;
     if (email !== undefined) data.email = email;
     if (phone !== undefined) data.phone = phone;
     if (roleId || role_id) data.role_id = roleId || role_id;
     if (isActive !== undefined || is_active !== undefined) data.is_active = isActive ?? is_active;
+    if (manager_id !== undefined) data.manager_id = manager_id || null;
 
     await UserModel.update(req.params.id, data);
 
@@ -111,8 +124,11 @@ export const resetPassword = async (req, res, next) => {
     await UserModel.updatePassword(req.params.id, newPassword);
 
     // Gửi email thông báo mật khẩu mới nếu được yêu cầu
+    // KHÔNG gửi trong production
     let emailSent = false;
-    if (sendEmail) {
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    if (sendEmail && !isProduction) {
       const user = await UserModel.findByIdWithRole(req.params.id);
       if (user?.email) {
         try {
@@ -124,9 +140,16 @@ export const resetPassword = async (req, res, next) => {
       }
     }
 
+    let message = 'Reset mật khẩu thành công';
+    if (emailSent) {
+      message = 'Reset mật khẩu và gửi email thành công';
+    } else if (isProduction) {
+      message += ' (Email không được gửi trong production)';
+    }
+
     res.json({
       success: true,
-      message: emailSent ? 'Reset mật khẩu và gửi email thành công' : 'Reset mật khẩu thành công',
+      message,
       emailSent
     });
   } catch (error) { next(error); }

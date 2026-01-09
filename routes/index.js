@@ -17,6 +17,7 @@ import * as assignment from '../controllers/assignmentController.js';
 import * as file from '../controllers/fileController.js';
 import * as common from '../controllers/commonController.js';
 import * as dashboard from '../controllers/dashboardController.js';
+// import * as enrollment from '../controllers/enrollmentController.js'; // Requires: npm install docx node-fetch
 
 const router = Router();
 
@@ -61,6 +62,7 @@ router.get('/enrollment/:studentId/form', authenticate, authorizeRole('EC', 'SAL
 router.get('/enrollment/:studentId/preview', authenticate, student.getEnrollmentPreview);
 
 // CLASSES
+// CLASSES
 const classViewRoles = ['EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
 router.get('/classes', authenticate, authorizeRole(...classViewRoles), cls.getAll);
 router.get('/classes/stats', authenticate, cls.getStats);
@@ -83,75 +85,79 @@ router.put('/experience/:id', authenticate, authorizeRole(...ecRoles), experienc
 router.delete('/experience/:id', authenticate, authorizeRole(...ecRoles), experience.remove);
 router.post('/experience/:id/convert', authenticate, authorizeRole(...ecRoles), experience.convertToStudent);
 
-// TRIAL
-router.get('/trial-students', authenticate, authorizeRole(...ecRoles), trial.getAll);
+// TRIAL (Legacy - sẽ được thay thế bởi leads)
+// EC và TEACHER cũng có thể xem để checkin
+const trialViewRoles = ['EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
+router.get('/trial-students', authenticate, authorizeRole(...trialViewRoles), trial.getAll);
 router.get('/trial-students/stats', authenticate, authorizeRole(...ecRoles), trial.getStats);
-router.get('/trial-students/:id', authenticate, authorizeRole(...ecRoles), trial.getById);
+router.get('/trial-students/:id', authenticate, authorizeRole(...trialViewRoles), trial.getById);
 router.post('/trial-students', authenticate, authorizeRole(...ecRoles), trial.create);
 router.put('/trial-students/:id', authenticate, authorizeRole(...ecRoles), trial.update);
 router.post('/trial-students/:id/convert', authenticate, authorizeRole(...ecRoles), trial.convert);
 router.delete('/trial-students/:id', authenticate, authorizeRole(...ecRoles), trial.remove);
 
-// LEADS
+// LEADS (Gộp trải nghiệm + học thử)
+// EC, SALE, HOEC, OM, QLCS, CHU, GDV, ADMIN được truy cập
 const leadRoles = ['EC', 'SALE', 'HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
 router.get('/leads', authenticate, authorizeRole(...leadRoles), lead.getAll);
 router.get('/leads/stats', authenticate, authorizeRole(...leadRoles), lead.getStats);
 router.get('/leads/month', authenticate, authorizeRole(...leadRoles), lead.getByMonth);
 router.get('/leads/check-phone', authenticate, authorizeRole(...leadRoles), lead.checkPhone);
+router.get('/leads/trial-report', authenticate, authorizeRole(...leadRoles), lead.getTrialReport);
+router.get('/leads/trial-report/export', authenticate, authorizeRole(...leadRoles), lead.exportTrialReport);
 router.get('/leads/:id', authenticate, authorizeRole(...leadRoles), lead.getById);
 router.post('/leads', authenticate, authorizeRole(...leadRoles), lead.create);
 router.put('/leads/:id', authenticate, authorizeRole(...leadRoles), lead.update);
-router.delete('/leads/:id', authenticate, authorizeRole('HOEC', 'OM', 'ADMIN'), lead.remove);
+router.delete('/leads/:id', authenticate, authorizeRole('HOEC', 'OM', 'ADMIN'), lead.remove); // Chỉ manager được xóa
 router.post('/leads/:id/attended', authenticate, authorizeRole(...leadRoles), lead.markAttended);
 router.post('/leads/:id/no-show', authenticate, authorizeRole(...leadRoles), lead.markNoShow);
 router.post('/leads/:id/complete-session', authenticate, authorizeRole(...leadRoles), lead.completeSession);
-router.post('/leads/:id/schedule', authenticate, authorizeRole(...leadRoles), lead.assignTrialClass);
-router.post('/leads/:id/assign-class', authenticate, authorizeRole(...leadRoles), lead.assignTrialClass);
+router.post('/leads/:id/schedule', authenticate, authorizeRole(...leadRoles), lead.assignTrialClass); // Đặt lịch trải nghiệm
+router.post('/leads/:id/assign-class', authenticate, authorizeRole(...leadRoles), lead.assignTrialClass); // Legacy alias
 router.post('/leads/:id/convert', authenticate, authorizeRole(...leadRoles), lead.convertToStudent);
 router.post('/leads/:id/call-log', authenticate, authorizeRole(...leadRoles), lead.addCallLog);
 router.get('/leads/:id/call-logs', authenticate, authorizeRole(...leadRoles), lead.getCallLogs);
 
 // SESSIONS
-const sessionRoles = ['CM', 'OM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
-router.get('/sessions', authenticate, authorizeRole(...sessionRoles), session.getAll);
-router.get('/sessions/today', authenticate, authorizeRole(...sessionRoles), session.getToday);
-router.get('/sessions/:id', authenticate, authorizeRole(...sessionRoles), session.getById);
-router.post('/sessions', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.create);
-router.post('/sessions/generate', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.generate);
-router.put('/sessions/:id', authenticate, authorizeRole('CM', 'OM', 'TEACHER', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.update);
-router.delete('/sessions/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.remove);
+router.get('/sessions', authenticate, authorize('session.view'), session.getAll);
+router.get('/sessions/today', authenticate, session.getToday);
+router.get('/sessions/:id', authenticate, authorize('session.view'), session.getById);
+router.post('/sessions', authenticate, authorizeRole('CM', 'ADMIN'), session.create);
+router.post('/sessions/generate', authenticate, authorizeRole('CM', 'ADMIN'), session.generate);
+router.put('/sessions/:id', authenticate, authorizeRole('CM', 'ADMIN', 'TEACHER'), session.update);
+router.delete('/sessions/:id', authenticate, authorizeRole('ADMIN'), session.remove);
 
 // ATTENDANCE
-const attendanceRoles = ['CM', 'OM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
-router.get('/attendance/session/:sessionId', authenticate, authorizeRole(...attendanceRoles), attendance.getSessionAttendance);
-router.get('/attendance/session/:sessionId/students', authenticate, authorizeRole(...attendanceRoles), attendance.getStudentsForSession);
-router.post('/attendance/session/:sessionId/mark', authenticate, authorizeRole(...attendanceRoles), attendance.markAttendance);
-router.get('/attendance/class/:classId/report', authenticate, authorizeRole(...attendanceRoles), attendance.getClassReport);
-router.get('/attendance/warnings', authenticate, authorizeRole(...attendanceRoles), attendance.getStudentsWithWarnings);
-router.put('/attendance/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), attendance.update);
+router.get('/attendance/session/:sessionId', authenticate, attendance.getSessionAttendance);
+router.get('/attendance/session/:sessionId/students', authenticate, attendance.getStudentsForSession);
+router.post('/attendance/session/:sessionId/mark', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'HOEC', 'ADMIN'), attendance.markAttendance);
+router.get('/attendance/class/:classId/report', authenticate, attendance.getClassReport);
+router.get('/attendance/warnings', authenticate, attendance.getStudentsWithWarnings);
+router.put('/attendance/:id', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'HOEC', 'ADMIN'), attendance.update);
 
 // ASSIGNMENTS
-const assignmentRoles = ['CM', 'OM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
-router.get('/assignments', authenticate, authorizeRole(...assignmentRoles), assignment.getAll);
-router.get('/assignments/:id', authenticate, authorizeRole(...assignmentRoles), assignment.getById);
-router.get('/assignments/:id/submissions', authenticate, authorizeRole(...assignmentRoles), assignment.getSubmissions);
-router.post('/assignments', authenticate, authorizeRole('CM', 'OM', 'TEACHER', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.create);
-router.put('/assignments/:id', authenticate, authorizeRole('CM', 'OM', 'TEACHER', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.update);
-router.delete('/assignments/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.remove);
-router.post('/assignments/:submissionId/grade', authenticate, authorizeRole('CM', 'OM', 'TEACHER', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.grade);
+router.get('/assignments', authenticate, authorize('assignment.view'), assignment.getAll);
+router.get('/assignments/:id', authenticate, authorize('assignment.view'), assignment.getById);
+router.get('/assignments/:id/submissions', authenticate, assignment.getSubmissions);
+router.post('/assignments', authenticate, authorizeRole('TEACHER', 'CM', 'ADMIN'), assignment.create);
+router.put('/assignments/:id', authenticate, authorizeRole('TEACHER', 'CM', 'ADMIN'), assignment.update);
+router.delete('/assignments/:id', authenticate, authorizeRole('TEACHER', 'CM', 'ADMIN'), assignment.remove);
+router.post('/assignments/:submissionId/grade', authenticate, authorizeRole('TEACHER', 'ADMIN'), assignment.grade);
 
-// FILES
+// FILES (Cloudinary)
 router.get('/files', authenticate, file.getAll);
 router.get('/files/:id', authenticate, file.getById);
 router.post('/files/upload', authenticate, upload.array('files', 10), file.upload);
 router.delete('/files/:id', authenticate, file.remove);
 
-// COMMON
+// COMMON - SUBJECTS
 router.get('/common/subjects', authenticate, common.getSubjects);
 router.get('/common/subjects/:id', authenticate, common.getSubjectById);
-router.post('/common/subjects', authenticate, authorizeRole('GDV', 'ADMIN'), common.createSubject);
-router.put('/common/subjects/:id', authenticate, authorizeRole('GDV', 'ADMIN'), common.updateSubject);
-router.delete('/common/subjects/:id', authenticate, authorizeRole('GDV', 'ADMIN'), common.deleteSubject);
+router.post('/common/subjects', authenticate, authorizeRole('ADMIN'), common.createSubject);
+router.put('/common/subjects/:id', authenticate, authorizeRole('ADMIN'), common.updateSubject);
+router.delete('/common/subjects/:id', authenticate, authorizeRole('ADMIN'), common.deleteSubject);
+
+// COMMON - LEVELS
 router.get('/common/levels', authenticate, common.getLevels);
 router.get('/common/levels/:id', authenticate, common.getLevelById);
 router.post('/common/levels', authenticate, authorizeRole('GDV', 'ADMIN'), common.createLevel);
@@ -163,7 +169,7 @@ router.get('/notifications', authenticate, common.getNotifications);
 router.put('/notifications/:id/read', authenticate, common.markNotificationRead);
 router.put('/notifications/read-all', authenticate, common.markAllNotificationsRead);
 
-// PACKAGES
+// PACKAGES (Gói học phí - dùng bảng packages)
 import * as pkg from '../controllers/packageController.js';
 router.get('/packages', authenticate, pkg.getAll);
 router.get('/packages/branch-prices', authenticate, authorizeRole('GDV', 'ADMIN'), pkg.getBranchPrices);
@@ -175,6 +181,13 @@ router.delete('/packages/:id', authenticate, authorizeRole('GDV', 'ADMIN'), pkg.
 router.post('/packages/branch-price', authenticate, authorizeRole('GDV', 'ADMIN'), pkg.setBranchPrice);
 router.post('/packages/branch-prices/bulk', authenticate, authorizeRole('GDV', 'ADMIN'), pkg.bulkSetBranchPrices);
 
+// Alias /tuition-packages -> /packages (backward compatibility)
+router.get('/tuition-packages', authenticate, pkg.getAll);
+router.get('/tuition-packages/:id', authenticate, pkg.getById);
+router.post('/tuition-packages', authenticate, authorizeRole('GDV', 'ADMIN'), pkg.create);
+router.put('/tuition-packages/:id', authenticate, authorizeRole('GDV', 'ADMIN'), pkg.update);
+router.delete('/tuition-packages/:id', authenticate, authorizeRole('GDV', 'ADMIN'), pkg.remove);
+
 // SALE REPORTS & KPI
 import * as saleReport from '../controllers/saleReportController.js';
 router.get('/sale-reports/my', authenticate, authorizeRole('EC', 'SALE'), saleReport.getMyReport);
@@ -183,6 +196,7 @@ router.get('/sale-reports/summary', authenticate, authorizeRole('HOEC', 'QLCS', 
 router.get('/sale-reports/ranking/revenue', authenticate, saleReport.getRankingRevenue);
 router.get('/sale-reports/ranking/kpi', authenticate, saleReport.getRankingKpi);
 router.get('/sale-reports/expected-revenue', authenticate, authorizeRole('HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN'), saleReport.getExpectedRevenueList);
+router.get('/sale-reports/full-paid', authenticate, authorizeRole('HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN'), saleReport.getFullPaidList);
 router.get('/sale-reports/full-paid', authenticate, authorizeRole('HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN'), saleReport.getFullPaidList);
 router.post('/sale-reports/calculate', authenticate, authorizeRole('GDV', 'ADMIN'), saleReport.calculateReport);
 router.post('/sale-reports/calculate-all', authenticate, authorizeRole('GDV', 'ADMIN'), saleReport.calculateAllReports);
@@ -202,15 +216,19 @@ router.get('/dashboard/cm', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU
 router.get('/dashboard/ec', authenticate, authorizeRole('EC', 'HOEC', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getSale);
 router.get('/dashboard/teacher', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getTeacher);
 router.get('/dashboard/ta', authenticate, authorizeRole('TA', 'CM', 'OM', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getTeacher);
+// Backward compatibility
 router.get('/dashboard/sale', authenticate, authorizeRole('EC', 'SALE'), dashboard.getSale);
 
-// PROMOTIONS
+// PROMOTIONS (Khuyến mại)
 import * as promo from '../controllers/promotionController.js';
+// Chương trình KM
+router.get('/promotions', authenticate, promo.getActivePrograms); // Alias
 router.get('/promotions/programs', authenticate, promo.getActivePrograms);
 router.get('/promotions/programs/all', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getAllPrograms);
 router.post('/promotions/programs', authenticate, authorizeRole('ADMIN', 'GDV'), promo.createProgram);
 router.put('/promotions/programs/:id', authenticate, authorizeRole('ADMIN', 'GDV'), promo.updateProgram);
 router.delete('/promotions/programs/:id', authenticate, authorizeRole('ADMIN', 'GDV'), promo.deleteProgram);
+// Vật phẩm KM
 router.get('/promotions/items', authenticate, promo.getAllItems);
 router.get('/promotions/items/in-stock', authenticate, promo.getItemsInStock);
 router.get('/promotions/items/low-stock', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getLowStockItems);
@@ -220,16 +238,27 @@ router.delete('/promotions/items/:id', authenticate, authorizeRole('ADMIN', 'GDV
 router.post('/promotions/items/:id/stock', authenticate, authorizeRole('ADMIN', 'GDV'), promo.addItemStock);
 router.post('/promotions/stock', authenticate, authorizeRole('ADMIN', 'GDV'), promo.updateStock);
 router.get('/promotions/stock/history', authenticate, authorizeRole('ADMIN', 'GDV'), promo.getStockHistory);
+// Học bổng KM
 router.get('/promotions/scholarships', authenticate, promo.getAllScholarships);
 router.post('/promotions/scholarships', authenticate, authorizeRole('ADMIN', 'GDV'), promo.createScholarship);
-router.get('/promotions/convert-data', authenticate, promo.getConvertData);
+// Lead Promotions
+router.get('/promotions/convert-data', authenticate, promo.getConvertData); // Data cho modal convert
 router.get('/promotions/lead/:leadId', authenticate, promo.getLeadPromotions);
 router.post('/promotions/lead/:leadId', authenticate, promo.applyPromotion);
 router.get('/promotions/pending', authenticate, authorizeRole('ADMIN', 'GDV', 'HOEC'), promo.getPendingApprovals);
 router.post('/promotions/lead/:leadId/approve', authenticate, authorizeRole('ADMIN', 'GDV'), promo.approveExtraDiscount);
+// Lead Gifts
 router.post('/promotions/lead/:leadId/gift', authenticate, promo.addGift);
 router.put('/promotions/gift/:giftId/deliver', authenticate, promo.markGiftDelivered);
 router.put('/promotions/gift/:giftId/return', authenticate, promo.returnGift);
+
+// CALL (SignalWire) - Uncomment nếu cần tính năng gọi điện
+// import * as call from '../controllers/callController.js';
+// router.get('/call/token', authenticate, call.getToken);
+// router.get('/call/config', authenticate, call.getConfig);
+// router.post('/call/make', authenticate, call.makeCall);
+// router.get('/call/status/:callSid', authenticate, call.getCallStatus);
+// router.post('/call/twiml', call.twiml);
 
 // STUDENT DOCUMENTS
 router.get('/students/:id/documents', authenticate, student.getDocuments);
@@ -253,5 +282,40 @@ router.post('/settings/smtp', authenticate, authorizeRole('GDV', 'ADMIN'), setti
 router.post('/settings/smtp/test', authenticate, authorizeRole('GDV', 'ADMIN'), settings.testSmtpConnection);
 router.get('/settings/all', authenticate, authorizeRole('GDV', 'ADMIN'), settings.getAllSettings);
 router.post('/settings', authenticate, authorizeRole('GDV', 'ADMIN'), settings.saveSetting);
+
+// SCHOLARSHIP APPROVAL
+import * as scholarship from '../controllers/scholarshipController.js';
+router.get('/scholarships/pending', authenticate, authorizeRole('GDV', 'ADMIN'), scholarship.getPendingApprovals);
+router.get('/scholarships', authenticate, authorizeRole('GDV', 'ADMIN', 'HOEC', 'OM'), scholarship.getApprovals);
+router.get('/scholarships/check', authenticate, scholarship.checkScholarship);
+router.post('/scholarships/request', authenticate, scholarship.requestApproval);
+router.post('/scholarships/:id/approve', authenticate, authorizeRole('GDV', 'ADMIN'), scholarship.approveScholarship);
+router.post('/scholarships/:id/reject', authenticate, authorizeRole('GDV', 'ADMIN'), scholarship.rejectScholarship);
+
+// USER CHECKIN
+import * as checkin from '../controllers/checkinController.js';
+router.get('/checkin/status', authenticate, checkin.getMyStatus);
+router.post('/checkin', authenticate, checkin.checkin);
+router.post('/checkin/checkout', authenticate, checkin.checkout);
+router.get('/checkin/list', authenticate, checkin.getCheckins);
+router.get('/checkin/report', authenticate, checkin.getReport);
+router.get('/checkin/summary', authenticate, checkin.getSubordinateSummary);
+router.get('/checkin/export', authenticate, checkin.exportCheckins);
+router.post('/checkin/admin', authenticate, authorizeRole('GDV', 'ADMIN', 'CHU', 'QLCS', 'OM', 'CM'), checkin.adminCheckin);
+
+// SUBORDINATE/MANAGER HIERARCHY
+import * as subordinate from '../controllers/subordinateController.js';
+router.get('/subordinates', authenticate, subordinate.getSubordinates);
+router.get('/subordinates/revenue', authenticate, subordinate.getSubordinateRevenue);
+router.get('/subordinates/stats', authenticate, subordinate.getSubordinateStats);
+router.get('/subordinates/managers', authenticate, subordinate.getAvailableManagers);
+router.get('/subordinates/tree/:userId?', authenticate, subordinate.getTeamTree);
+router.post('/subordinates/set-manager', authenticate, authorizeRole('GDV', 'ADMIN', 'CHU', 'QLCS'), subordinate.setManager);
+
+// TRIAL CHECKIN (EC & TEACHER)
+const trialCheckinRoles = ['EC', 'TEACHER', 'SALE', 'HOEC', 'OM', 'CM', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
+router.get('/trial/today', authenticate, authorizeRole(...trialCheckinRoles), trial.getTodayTrials);
+router.get('/trial/checkins', authenticate, authorizeRole(...trialCheckinRoles), trial.getTrialCheckins);
+router.post('/trial/:id/checkin', authenticate, authorizeRole(...trialCheckinRoles), trial.checkinTrial);
 
 export default router;

@@ -9,14 +9,16 @@ class StudentModel extends BaseModel {
     return branchCode + '-' + Date.now().toString(36).toUpperCase();
   }
 
-  async findAllWithRelations({ status, subjectId, search, saleId, branchId, feeStatus, page = 1, limit = 20 } = {}) {
+  async findAllWithRelations({ status, subjectId, classId, search, saleId, branchId, feeStatus, page = 1, limit = 20 } = {}) {
     let sql = `
       SELECT s.*, b.name as branch_name, b.code as branch_code,
              sub.name as subject_name, l.name as level_name, u.full_name as sale_name,
              p.name as package_name, p.months as package_months,
              cl.name as current_level_name,
              (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id 
-              WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name
+              WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name,
+             (SELECT cs.class_id FROM class_students cs 
+              WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_id
       FROM students s
       JOIN branches b ON s.branch_id = b.id
       LEFT JOIN subjects sub ON s.subject_id = sub.id
@@ -33,6 +35,10 @@ class StudentModel extends BaseModel {
     if (status) { sql += ' AND s.status = ?'; params.push(status); }
     if (subjectId) { sql += ' AND s.subject_id = ?'; params.push(subjectId); }
     if (feeStatus) { sql += ' AND s.fee_status = ?'; params.push(feeStatus); }
+    if (classId) {
+      sql += ' AND s.id IN (SELECT student_id FROM class_students WHERE class_id = ? AND status = "active")';
+      params.push(classId);
+    }
     if (search) {
       sql += ' AND (s.full_name LIKE ? OR s.student_code LIKE ? OR s.parent_phone LIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);

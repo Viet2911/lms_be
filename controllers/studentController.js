@@ -18,10 +18,10 @@ const getBranchFilter = (req) => {
 
 export const getAll = async (req, res, next) => {
   try {
-    const { status, subjectId, search, page = 1, limit = 20 } = req.query;
+    const { status, subjectId, class_id, search, page = 1, limit = 20 } = req.query;
     const saleId = req.user.role_name === 'SALE' ? req.user.id : null;
     const branchId = getBranchFilter(req);
-    const result = await StudentModel.findAllWithRelations({ status, subjectId, search, saleId, branchId, page, limit });
+    const result = await StudentModel.findAllWithRelations({ status, subjectId, classId: class_id, search, saleId, branchId, page, limit });
     res.json({ success: true, ...result });
   } catch (error) { next(error); }
 };

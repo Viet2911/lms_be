@@ -1,4 +1,4 @@
-import EnrollmentFormService from '../services/enrollmentformService.js';
+import EnrollmentFormService from '../services/enrollmentFormService.js';
 import StudentModel from '../models/StudentModel.js';
 import db from '../config/database.js';
 
@@ -20,16 +20,15 @@ export const generateEnrollmentForm = async (req, res, next) => {
         );
         const paidAmount = payments[0]?.total_paid || 0;
 
-        // Get tuition package info if available
+        // Get package info if available (dùng bảng packages)
         let packageInfo = null;
-        if (student.tuition_package_id) {
+        if (student.package_id) {
             const [packages] = await db.query(
-                `SELECT tp.*, s.name as subject_name, l.name as level_name
-         FROM tuition_packages tp
-         LEFT JOIN subjects s ON tp.subject_id = s.id
-         LEFT JOIN levels l ON tp.level_id = l.id
-         WHERE tp.id = ?`,
-                [student.tuition_package_id]
+                `SELECT p.*, s.name as subject_name
+         FROM packages p
+         LEFT JOIN subjects s ON p.subject_id = s.id
+         WHERE p.id = ?`,
+                [student.package_id]
             );
             packageInfo = packages[0];
         }
