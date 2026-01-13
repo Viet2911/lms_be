@@ -121,6 +121,38 @@ export const addItemStock = async (req, res, next) => {
     } catch (error) { next(error); }
 };
 
+// Tặng quà (trừ stock) - cho phép mọi user có quyền
+export const giveItem = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { student_id, lead_id, note } = req.body;
+
+        // Kiểm tra còn hàng không
+        const [items] = await PromotionModel.db.query('SELECT * FROM promotion_items WHERE id = ?', [id]);
+        if (!items.length) {
+            return res.status(404).json({ success: false, message: 'Quà tặng không tồn tại' });
+        }
+        if (items[0].stock_quantity <= 0) {
+            return res.status(400).json({ success: false, message: 'Quà tặng đã hết hàng' });
+        }
+
+        // Trừ stock
+        await PromotionModel.db.query(
+            'UPDATE promotion_items SET stock_quantity = stock_quantity - 1 WHERE id = ? AND stock_quantity > 0',
+            [id]
+        );
+
+        // Log history
+        const targetNote = student_id ? `Tặng cho học viên #${student_id}` : lead_id ? `Tặng cho lead #${lead_id}` : note || 'Tặng quà';
+        await PromotionModel.db.query(
+            'INSERT INTO promotion_item_stocks (item_id, quantity, type, note, created_by) VALUES (?, ?, ?, ?, ?)',
+            [id, -1, 'out', targetNote, req.user.id]
+        );
+
+        res.json({ success: true, message: 'Tặng quà thành công', data: { remaining: items[0].stock_quantity - 1 } });
+    } catch (error) { next(error); }
+};
+
 // Nhập/xuất kho
 export const updateStock = async (req, res, next) => {
     try {

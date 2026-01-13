@@ -15,6 +15,19 @@ export const getMyReport = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+// Lấy báo cáo theo cấu trúc Team
+export const getByTeam = async (req, res, next) => {
+  try {
+    const { month, branch_id } = req.query;
+    const currentMonth = month || new Date().toISOString().slice(0, 7);
+    const branchId = branch_id || getBranchFilter(req);
+
+    const teamData = await SaleReportModel.getByTeamHierarchy(currentMonth, branchId, req.user);
+
+    res.json({ success: true, data: teamData });
+  } catch (error) { next(error); }
+};
+
 // Lấy tất cả báo cáo theo tháng (HOEC/Admin)
 export const getAllReports = async (req, res, next) => {
   try {
@@ -22,11 +35,19 @@ export const getAllReports = async (req, res, next) => {
     const currentMonth = month || new Date().toISOString().slice(0, 7);
     const branchId = branch_id || getBranchFilter(req);
 
-    // Nếu là HOEC, chỉ lấy EC dưới quyền
-    const hoecId = req.user.role_name === 'HOEC' ? req.user.id : null;
+    // Filter theo role và manager hierarchy
+    let managerId = null;
+    const role = req.user.role_name?.toUpperCase();
 
-    const reports = await SaleReportModel.getAllByMonth(currentMonth, branchId, hoecId);
-    const summary = await SaleReportModel.getSummaryByMonth(currentMonth, branchId);
+    // HOEC chỉ xem EC trực thuộc
+    // BM xem HOEC và team của họ
+    // GDV xem tất cả theo branch
+    if (['HOEC', 'BM', 'HOCM'].includes(role)) {
+      managerId = req.user.id;
+    }
+
+    const reports = await SaleReportModel.getAllByMonth(currentMonth, branchId, managerId);
+    const summary = await SaleReportModel.getSummaryByMonth(currentMonth, branchId, managerId);
 
     res.json({ success: true, data: { reports, summary } });
   } catch (error) { next(error); }
@@ -199,4 +220,4 @@ export const getFullPaidList = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
-// Lấy danh sách đã đóng đủ tiền (full pai
+// Lấy danh sách đã đóng đủ tiền (full paid)

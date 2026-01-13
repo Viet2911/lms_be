@@ -4,12 +4,10 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-
 import routes from './routes/index.js';
 import errorHandler from './middleware/errorHandler.js';
 import './services/cronService.js';
-import { config } from 'dotenv';
-config();
+
 const app = express();
 
 // Security Headers
@@ -22,34 +20,34 @@ app.use(compression());
 
 // Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per window
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
   message: { success: false, message: 'Quá nhiều request, vui lòng thử lại sau' },
   standardHeaders: true,
   legacyHeaders: false
 });
 
-// const authLimiter = rateLimit({
-//   windowMs: 60 * 60 * 1000, // 1 hour
-//   max: 10, // 10 login attempts per hour
-//   message: { success: false, message: 'Quá nhiều lần đăng nhập thất bại, vui lòng thử lại sau 1 giờ' }
-// });
-
-// app.use('/api', limiter);
-// app.use('/api/auth/login', authLimiter);
-
-// CORS
+// CORS - Allow all origins for now
 const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(',')
-  : ['https://curious-fenglisu-66f227.netlify.app'];
+  ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+  : ['https://lms-fe-blue.vercel.app', 'http://localhost:3001', 'http://localhost:5500', 'http://127.0.0.1:5500'];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, etc)
+    // Allow requests with no origin (mobile apps, curl, Postman, etc)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+
+    // Check if origin is in allowed list
+    if (allowedOrigins.some(allowed => origin.includes(allowed.replace('https://', '').replace('http://', '')))) {
       return callback(null, true);
     }
+
+    // Allow all vercel.app and localhost
+    if (origin.includes('vercel.app') || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+
+    console.log('CORS blocked origin:', origin);
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true
@@ -83,4 +81,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 API Server: http://localhost:${PORT}`);
   console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🌐 Allowed Origins: ${allowedOrigins.join(', ')}`);
 });

@@ -6,10 +6,11 @@ dotenv.config();
 
 // Kết nối database
 const dbConfig = {
-    host: process.env.DB_HOST || 'localhost',
+    host: process.env.DB_HOST || 'metro.proxy.rlwy.net',
+    port: process.env.DB_PORT || 20518,
     user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'lms'
+    password: process.env.DB_PASSWORD || process.env.DB_PASS || 'JsyMJSxTQHHUfpzwrSoJWBusIMIcHZMn',
+    database: process.env.DB_NAME || 'railway',
 };
 
 // Kiểm tra password đã được hash chưa

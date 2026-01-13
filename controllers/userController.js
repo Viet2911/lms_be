@@ -32,6 +32,13 @@ export const getRoles = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+export const getManagers = async (req, res, next) => {
+  try {
+    const managers = await UserModel.getManagers();
+    res.json({ success: true, data: managers });
+  } catch (error) { next(error); }
+};
+
 export const create = async (req, res, next) => {
   try {
     const { username, email, password, fullName, full_name, phone, roleId, role_id, branch_ids, manager_id, sendEmail } = req.body;

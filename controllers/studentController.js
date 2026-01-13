@@ -45,10 +45,29 @@ export const getById = async (req, res, next) => {
 
 export const create = async (req, res, next) => {
   try {
-    const { branchId, fullName, birthYear, gender, address, parentName, parentPhone, parentEmail, subjectId, levelId, learningPath, note } = req.body;
+    // Accept both camelCase and snake_case
+    const fullName = req.body.fullName || req.body.full_name;
+    const birthYear = req.body.birthYear || req.body.birth_year;
+    const gender = req.body.gender;
+    const address = req.body.address;
+    const parentName = req.body.parentName || req.body.parent_name;
+    const parentPhone = req.body.parentPhone || req.body.parent_phone;
+    const parentEmail = req.body.parentEmail || req.body.parent_email;
+    const subjectId = req.body.subjectId || req.body.subject_id;
+    const levelId = req.body.levelId || req.body.level_id;
+    const note = req.body.note;
+    const branchId = req.body.branchId || req.body.branch_id;
+    const packageId = req.body.packageId || req.body.package_id;
+    const tuitionFee = req.body.tuitionFee || req.body.tuition_fee;
+    const discountAmount = req.body.discountAmount || req.body.discount_amount;
+    const scholarshipMonths = req.body.scholarshipMonths || req.body.scholarship_months;
+    const giftId = req.body.giftId || req.body.gift_id;
+    const giftName = req.body.giftName || req.body.gift_name;
+    const paidAmount = req.body.paidAmount || req.body.paid_amount;
+    const paymentStatus = req.body.paymentStatus || req.body.payment_status;
 
-    if (!fullName || !birthYear || !parentName || !parentPhone) {
-      return res.status(400).json({ success: false, message: 'Thiếu thông tin bắt buộc' });
+    if (!fullName || !parentName || !parentPhone) {
+      return res.status(400).json({ success: false, message: 'Thiếu thông tin bắt buộc (họ tên, tên PH, SĐT)' });
     }
 
     // Xác định branch
@@ -67,10 +86,27 @@ export const create = async (req, res, next) => {
     const student = await StudentModel.create({
       branch_id: finalBranchId,
       student_code: StudentModel.generateCode(branchCode),
-      full_name: fullName, birth_year: birthYear, gender, address,
-      parent_name: parentName, parent_phone: parentPhone, parent_email: parentEmail,
-      subject_id: subjectId || null, level_id: levelId || null,
-      note, sale_id: req.user.id, status: 'active'
+      full_name: fullName,
+      birth_year: birthYear || null,
+      gender,
+      address,
+      parent_name: parentName,
+      parent_phone: parentPhone,
+      parent_email: parentEmail,
+      subject_id: subjectId || null,
+      level_id: levelId || null,
+      package_id: packageId || null,
+      tuition_fee: tuitionFee || 0,
+      discount_amount: discountAmount || 0,
+      scholarship_months: scholarshipMonths || 0,
+      gift_id: giftId || null,
+      gift_name: giftName || null,
+      paid_amount: paidAmount || 0,
+      payment_status: paymentStatus || 'pending',
+      sessions_per_week: 1,
+      note,
+      sale_id: req.user.id,
+      status: 'active'
     });
 
     res.status(201).json({ success: true, message: 'Thêm học sinh thành công', data: student });
@@ -270,7 +306,13 @@ export const getDocuments = async (req, res, next) => {
   try {
     const { id } = req.params;
     const [docs] = await StudentModel.db.query(`
-      SELECT d.*, u.full_name as uploaded_by_name
+      SELECT d.*, u.full_name as uploaded_by_name,
+        CASE d.doc_type 
+          WHEN 'receipt' THEN 'Phiếu thu'
+          WHEN 'registration_form' THEN 'Đơn đăng ký'
+          WHEN 'contract' THEN 'Hợp đồng'
+          ELSE 'Khác'
+        END as doc_type_display
       FROM student_documents d
       LEFT JOIN users u ON d.uploaded_by = u.id
       WHERE d.student_id = ?
@@ -284,20 +326,25 @@ export const getDocuments = async (req, res, next) => {
 export const uploadDocument = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { document_type, note } = req.body;
+    const { doc_type, note } = req.body;
 
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Chưa chọn file' });
     }
 
+    // Get file URL - Cloudinary returns path, local storage returns filename
+    const fileUrl = req.file.path.startsWith('http')
+      ? req.file.path
+      : `/uploads/documents/${req.file.filename}`;
+
     const [result] = await StudentModel.db.query(`
-      INSERT INTO student_documents (student_id, document_type, file_name, file_url, file_type, file_size, note, uploaded_by)
+      INSERT INTO student_documents (student_id, doc_type, file_name, file_url, file_type, file_size, note, uploaded_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       id,
-      document_type || 'other',
+      doc_type || 'other',
       req.file.originalname,
-      req.file.path, // Cloudinary URL
+      fileUrl,
       req.file.mimetype,
       req.file.size,
       note || null,
@@ -307,7 +354,7 @@ export const uploadDocument = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Upload thành công',
-      data: { id: result.insertId, file_url: req.file.path }
+      data: { id: result.insertId, file_url: fileUrl }
     });
   } catch (error) { next(error); }
 };
@@ -315,8 +362,8 @@ export const uploadDocument = async (req, res, next) => {
 // Delete document
 export const deleteDocument = async (req, res, next) => {
   try {
-    const { id, docId } = req.params;
-    await StudentModel.db.query('DELETE FROM student_documents WHERE id = ? AND student_id = ?', [docId, id]);
+    const { docId } = req.params;
+    await StudentModel.db.query('DELETE FROM student_documents WHERE id = ?', [docId]);
     res.json({ success: true, message: 'Đã xóa tài liệu' });
   } catch (error) { next(error); }
 };

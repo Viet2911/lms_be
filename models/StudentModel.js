@@ -9,7 +9,7 @@ class StudentModel extends BaseModel {
     return branchCode + '-' + Date.now().toString(36).toUpperCase();
   }
 
-  async findAllWithRelations({ status, subjectId, classId, search, saleId, branchId, feeStatus, page = 1, limit = 20 } = {}) {
+  async findAllWithRelations({ status, subjectId, classId, search, saleId, branchId, feeStatus, feeEndMonth, page = 1, limit = 20 } = {}) {
     let sql = `
       SELECT s.*, b.name as branch_name, b.code as branch_code,
              sub.name as subject_name, l.name as level_name, u.full_name as sale_name,
@@ -32,9 +32,30 @@ class StudentModel extends BaseModel {
 
     if (branchId) { sql += ' AND s.branch_id = ?'; params.push(branchId); }
     if (saleId) { sql += ' AND s.sale_id = ?'; params.push(saleId); }
-    if (status) { sql += ' AND s.status = ?'; params.push(status); }
+    if (status === 'expiring_soon') {
+      sql += ' AND s.fee_status = ?';
+      params.push('expiring_soon');
+    } else if (status) {
+      sql += ' AND s.status = ?';
+      params.push(status);
+    }
     if (subjectId) { sql += ' AND s.subject_id = ?'; params.push(subjectId); }
     if (feeStatus) { sql += ' AND s.fee_status = ?'; params.push(feeStatus); }
+
+    // Lọc theo tháng hết phí
+    if (feeEndMonth !== undefined && feeEndMonth !== null && feeEndMonth !== '') {
+      const monthsAhead = parseInt(feeEndMonth);
+      if (monthsAhead === 0) {
+        // Tháng này
+        sql += ' AND YEAR(s.fee_end_date) = YEAR(CURDATE()) AND MONTH(s.fee_end_date) = MONTH(CURDATE())';
+      } else {
+        // X tháng tới (từ tháng này đến tháng X)
+        sql += ' AND s.fee_end_date <= DATE_ADD(LAST_DAY(CURDATE()), INTERVAL ? MONTH)';
+        sql += ' AND s.fee_end_date >= CURDATE()';
+        params.push(monthsAhead);
+      }
+    }
+
     if (classId) {
       sql += ' AND s.id IN (SELECT student_id FROM class_students WHERE class_id = ? AND status = "active")';
       params.push(classId);
@@ -48,7 +69,7 @@ class StudentModel extends BaseModel {
     const [countRows] = await this.db.query(countSql, params);
     const total = countRows[0]?.total || 0;
 
-    sql += ' ORDER BY s.created_at DESC LIMIT ? OFFSET ?';
+    sql += ' ORDER BY s.fee_end_date ASC, s.created_at DESC LIMIT ? OFFSET ?';
     params.push(+limit, (+page - 1) * +limit);
     const [rows] = await this.db.query(sql, params);
 
@@ -60,7 +81,9 @@ class StudentModel extends BaseModel {
       `SELECT s.*, b.name as branch_name, b.code as branch_code,
               sub.name as subject_name, l.name as level_name, u.full_name as sale_name,
               p.name as package_name, p.months as package_months, p.sessions_count as package_sessions,
-              cl.name as current_level_name
+              cl.name as current_level_name,
+              (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id 
+               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name
        FROM students s
        JOIN branches b ON s.branch_id = b.id
        LEFT JOIN subjects sub ON s.subject_id = sub.id
@@ -90,7 +113,11 @@ class StudentModel extends BaseModel {
       SUM(fee_status = 'expiring_soon') as expiring_soon,
       SUM(payment_status = 'pending') as unpaid,
       SUM(payment_status = 'partial') as partial_paid,
-      SUM(payment_status = 'paid') as fully_paid
+      SUM(payment_status = 'paid') as fully_paid,
+      SUM(YEAR(fee_end_date) = YEAR(CURDATE()) AND MONTH(fee_end_date) = MONTH(CURDATE())) as expiring_this_month,
+      SUM(fee_end_date BETWEEN CURDATE() AND LAST_DAY(DATE_ADD(CURDATE(), INTERVAL 1 MONTH))) as expiring_next_month,
+      SUM(fee_end_date BETWEEN CURDATE() AND LAST_DAY(DATE_ADD(CURDATE(), INTERVAL 2 MONTH))) as expiring_2_months,
+      SUM(fee_end_date BETWEEN CURDATE() AND LAST_DAY(DATE_ADD(CURDATE(), INTERVAL 3 MONTH))) as expiring_3_months
       FROM students WHERE 1=1`;
     const params = [];
     if (branchId) { sql += ' AND branch_id = ?'; params.push(branchId); }
@@ -358,7 +385,7 @@ class StudentModel extends BaseModel {
 
       // Lấy thông tin học sinh hiện tại
       const [students] = await conn.query(
-        'SELECT id, actual_revenue, fee_total, fee_status, branch_id, sale_id FROM students WHERE id = ?',
+        'SELECT id, paid_amount, actual_revenue, tuition_fee, fee_total, fee_status, payment_status, branch_id, sale_id FROM students WHERE id = ?',
         [studentId]
       );
 
@@ -367,25 +394,36 @@ class StudentModel extends BaseModel {
       }
 
       const student = students[0];
-      const currentRevenue = parseFloat(student.actual_revenue) || 0;
       const paymentAmount = parseFloat(amount) || 0;
+
+      // Cập nhật paid_amount
+      const currentPaid = parseFloat(student.paid_amount) || 0;
+      const newPaidAmount = currentPaid + paymentAmount;
+
+      // Cập nhật actual_revenue (để tương thích)
+      const currentRevenue = parseFloat(student.actual_revenue) || 0;
       const newActualRevenue = currentRevenue + paymentAmount;
-      const feeTotal = parseFloat(student.fee_total) || 0;
+
+      // Lấy tổng học phí
+      const feeTotal = parseFloat(student.tuition_fee) || parseFloat(student.fee_total) || 0;
 
       // Xác định trạng thái thanh toán mới
+      let newPaymentStatus = 'partial';
       let newFeeStatus = 'partial';
-      if (newActualRevenue >= feeTotal && feeTotal > 0) {
+      if (newPaidAmount >= feeTotal && feeTotal > 0) {
+        newPaymentStatus = 'paid';
         newFeeStatus = 'paid';
-      } else if (newActualRevenue <= 0) {
+      } else if (newPaidAmount <= 0) {
+        newPaymentStatus = 'pending';
         newFeeStatus = 'pending';
       }
 
-      // Cập nhật actual_revenue và fee_status trong students
+      // Cập nhật cả paid_amount và actual_revenue
       const [updateResult] = await conn.query(`
         UPDATE students 
-        SET actual_revenue = ?, fee_status = ?, updated_at = NOW()
+        SET paid_amount = ?, actual_revenue = ?, payment_status = ?, fee_status = ?, updated_at = NOW()
         WHERE id = ?
-      `, [newActualRevenue, newFeeStatus, studentId]);
+      `, [newPaidAmount, newActualRevenue, newPaymentStatus, newFeeStatus, studentId]);
 
       // Kiểm tra update có thành công không
       if (updateResult.affectedRows === 0) {
