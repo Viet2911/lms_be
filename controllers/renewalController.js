@@ -1,4 +1,4 @@
-import RenewalModel from '../models/RenewalModel.js';
+import RenewalModel from '../models/renewalModel.js';
 import { getBranchFilter } from '../utils/branchHelper.js';
 
 // Lấy danh sách học sinh cần tái phí
