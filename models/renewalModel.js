@@ -1,42 +1,42 @@
 import BaseModel from './BaseModel.js';
 
 class RenewalModel extends BaseModel {
-    constructor() {
-        super('student_renewals');
+  constructor() {
+    super('student_renewals');
+  }
+
+  // Lấy danh sách học sinh cần tái phí
+  async getStudentsForRenewal(month, branchId = null, classId = null) {
+    // Tính ngày đầu và cuối của tháng được chọn
+    const monthStart = `${month}-01`;
+    const monthEnd = new Date(month + '-01');
+    monthEnd.setMonth(monthEnd.getMonth() + 1);
+    monthEnd.setDate(0);
+    const monthEndStr = monthEnd.toISOString().slice(0, 10);
+
+    // Ngày hiện tại
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Ngày 30 ngày sau
+    const thirtyDaysLater = new Date();
+    thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
+    const thirtyDaysLaterStr = thirtyDaysLater.toISOString().slice(0, 10);
+
+    let branchFilter = '';
+    const params = [monthStart, monthEndStr, today, thirtyDaysLaterStr, today];
+
+    if (branchId) {
+      branchFilter = 'AND cs.branch_id = ?';
+      params.push(branchId);
     }
 
-    // Lấy danh sách học sinh cần tái phí
-    async getStudentsForRenewal(month, branchId = null, classId = null) {
-        // Tính ngày đầu và cuối của tháng được chọn
-        const monthStart = `${month}-01`;
-        const monthEnd = new Date(month + '-01');
-        monthEnd.setMonth(monthEnd.getMonth() + 1);
-        monthEnd.setDate(0);
-        const monthEndStr = monthEnd.toISOString().slice(0, 10);
+    let classFilter = '';
+    if (classId) {
+      classFilter = 'AND cs.class_id = ?';
+      params.push(classId);
+    }
 
-        // Ngày hiện tại
-        const today = new Date().toISOString().slice(0, 10);
-
-        // Ngày 30 ngày sau
-        const thirtyDaysLater = new Date();
-        thirtyDaysLater.setDate(thirtyDaysLater.getDate() + 30);
-        const thirtyDaysLaterStr = thirtyDaysLater.toISOString().slice(0, 10);
-
-        let branchFilter = '';
-        const params = [monthStart, monthEndStr, today, thirtyDaysLaterStr, today];
-
-        if (branchId) {
-            branchFilter = 'AND cs.branch_id = ?';
-            params.push(branchId);
-        }
-
-        let classFilter = '';
-        if (classId) {
-            classFilter = 'AND cs.class_id = ?';
-            params.push(classId);
-        }
-
-        const sql = `
+    const sql = `
       SELECT 
         s.id,
         s.student_code,
@@ -99,92 +99,92 @@ class RenewalModel extends BaseModel {
         s.fee_end_date ASC
     `;
 
-        params.push(monthStart); // For the last EXISTS check
+    params.push(monthStart); // For the last EXISTS check
 
-        const [rows] = await this.db.query(sql, params);
+    const [rows] = await this.db.query(sql, params);
 
-        // Calculate stats
-        const stats = {
-            total: rows.length,
-            expiring: rows.filter(r => r.status === 'expiring').length,
-            expired: rows.filter(r => r.status === 'expired').length,
-            renewed: rows.filter(r => r.status === 'renewed').length
-        };
+    // Calculate stats
+    const stats = {
+      total: rows.length,
+      expiring: rows.filter(r => r.status === 'expiring').length,
+      expired: rows.filter(r => r.status === 'expired').length,
+      renewed: rows.filter(r => r.status === 'renewed').length
+    };
 
-        return { students: rows, stats };
+    return { students: rows, stats };
+  }
+
+  // Tạo renewal mới
+  async createRenewal(data) {
+    const { student_id, package_id, renewal_type, new_class_id, promotion_id, scholarship_months, deposit_amount, paid_amount, payment_status, note, created_by } = data;
+
+    // Lấy thông tin package
+    const [pkgRows] = await this.db.query('SELECT * FROM packages WHERE id = ?', [package_id]);
+    if (!pkgRows.length) {
+      throw new Error('Gói học không tồn tại');
+    }
+    const pkg = pkgRows[0];
+    const pkgPrice = parseFloat(pkg.price) || parseFloat(pkg.base_price) || 0;
+    const pkgMonths = parseInt(pkg.months) || 0;
+    const pkgSessions = parseInt(pkg.sessions_count) || parseInt(pkg.sessions) || 0;
+
+    // Tính giá sau khuyến mãi
+    let promoDiscount = 0;
+
+    if (promotion_id) {
+      const [promoRows] = await this.db.query('SELECT * FROM promotion_programs WHERE id = ?', [promotion_id]);
+      if (promoRows.length) {
+        const promo = promoRows[0];
+        if (promo.discount_type === 'percent') {
+          promoDiscount = Math.round(pkgPrice * (parseFloat(promo.discount_value) || 0) / 100);
+        } else {
+          promoDiscount = parseFloat(promo.discount_value) || 0;
+        }
+      }
     }
 
-    // Tạo renewal mới
-    async createRenewal(data) {
-        const { student_id, package_id, renewal_type, new_class_id, promotion_id, scholarship_months, deposit_amount, paid_amount, payment_status, note, created_by } = data;
+    // Học bổng = thêm tháng học miễn phí, KHÔNG trừ tiền
+    const bonusMonths = parseInt(scholarship_months) || 0;
+    const totalMonths = pkgMonths + bonusMonths;
 
-        // Lấy thông tin package
-        const [pkgRows] = await this.db.query('SELECT * FROM packages WHERE id = ?', [package_id]);
-        if (!pkgRows.length) {
-            throw new Error('Gói học không tồn tại');
-        }
-        const pkg = pkgRows[0];
-        const pkgPrice = parseFloat(pkg.price) || parseFloat(pkg.base_price) || 0;
-        const pkgMonths = parseInt(pkg.months) || 0;
-        const pkgSessions = parseInt(pkg.sessions_count) || parseInt(pkg.sessions) || 0;
+    const finalPrice = Math.max(0, pkgPrice - promoDiscount);
+    const actualPaid = parseFloat(paid_amount) || parseFloat(deposit_amount) || 0;
+    const remainingAmount = Math.max(0, finalPrice - actualPaid);
 
-        // Tính giá sau khuyến mãi
-        let promoDiscount = 0;
+    // Bắt đầu transaction
+    const conn = await this.db.getConnection();
+    try {
+      await conn.beginTransaction();
 
-        if (promotion_id) {
-            const [promoRows] = await this.db.query('SELECT * FROM promotion_programs WHERE id = ?', [promotion_id]);
-            if (promoRows.length) {
-                const promo = promoRows[0];
-                if (promo.discount_type === 'percent') {
-                    promoDiscount = Math.round(pkgPrice * (parseFloat(promo.discount_value) || 0) / 100);
-                } else {
-                    promoDiscount = parseFloat(promo.discount_value) || 0;
-                }
-            }
-        }
-
-        // Học bổng = thêm tháng học miễn phí, KHÔNG trừ tiền
-        const bonusMonths = parseInt(scholarship_months) || 0;
-        const totalMonths = pkgMonths + bonusMonths;
-
-        const finalPrice = Math.max(0, pkgPrice - promoDiscount);
-        const actualPaid = parseFloat(paid_amount) || parseFloat(deposit_amount) || 0;
-        const remainingAmount = Math.max(0, finalPrice - actualPaid);
-
-        // Bắt đầu transaction
-        const conn = await this.db.getConnection();
-        try {
-            await conn.beginTransaction();
-
-            // 1. Tạo renewal record
-            const [renewalResult] = await conn.query(`
+      // 1. Tạo renewal record
+      const [renewalResult] = await conn.query(`
         INSERT INTO student_renewals 
         (student_id, package_id, renewal_type, new_class_id, promotion_id, 
          original_price, discount_amount, scholarship_months, final_price, deposit_amount, paid_amount, remaining_amount, payment_status,
          note, created_by, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `, [student_id, package_id, renewal_type, new_class_id || null, promotion_id || null,
-                pkgPrice, promoDiscount, bonusMonths, finalPrice, parseFloat(deposit_amount) || 0, actualPaid, remainingAmount, payment_status || 'pending',
-                note || '', created_by]);
+        pkgPrice, promoDiscount, bonusMonths, finalPrice, parseFloat(deposit_amount) || 0, actualPaid, remainingAmount, payment_status || 'pending',
+        note || '', created_by]);
 
-            // 2. Cập nhật student - thêm sessions và gia hạn fee_end_date
-            const [studentRows] = await conn.query('SELECT * FROM students WHERE id = ?', [student_id]);
-            const student = studentRows[0];
+      // 2. Cập nhật student - thêm sessions và gia hạn fee_end_date
+      const [studentRows] = await conn.query('SELECT * FROM students WHERE id = ?', [student_id]);
+      const student = studentRows[0];
 
-            // Tính ngày hết phí mới
-            let newFeeEndDate;
-            if (student.fee_end_date && new Date(student.fee_end_date) > new Date()) {
-                // Còn hạn - cộng thêm từ ngày hết phí cũ
-                newFeeEndDate = new Date(student.fee_end_date);
-            } else {
-                // Hết hạn - tính từ hôm nay
-                newFeeEndDate = new Date();
-            }
+      // Tính ngày hết phí mới
+      let newFeeEndDate;
+      if (student.fee_end_date && new Date(student.fee_end_date) > new Date()) {
+        // Còn hạn - cộng thêm từ ngày hết phí cũ
+        newFeeEndDate = new Date(student.fee_end_date);
+      } else {
+        // Hết hạn - tính từ hôm nay
+        newFeeEndDate = new Date();
+      }
 
-            // Tính số tháng = tháng gói + học bổng
-            newFeeEndDate.setMonth(newFeeEndDate.getMonth() + totalMonths);
+      // Tính số tháng = tháng gói + học bổng
+      newFeeEndDate.setMonth(newFeeEndDate.getMonth() + totalMonths);
 
-            await conn.query(`
+      await conn.query(`
         UPDATE students SET 
           package_id = ?,
           fee_end_date = ?,
@@ -197,60 +197,60 @@ class RenewalModel extends BaseModel {
           updated_at = NOW()
         WHERE id = ?
       `, [package_id, newFeeEndDate.toISOString().slice(0, 10),
-                pkgPrice, promoDiscount, actualPaid, bonusMonths, pkgSessions,
-                student_id]);
+        pkgPrice, promoDiscount, actualPaid, bonusMonths, pkgSessions,
+        student_id]);
 
-            // 3. Nếu là khóa mới và có chọn lớp mới - thêm vào lớp mới
-            if (renewal_type === 'new' && new_class_id) {
-                // Kiểm tra xem đã trong lớp chưa
-                const [existingClass] = await conn.query(
-                    'SELECT * FROM class_students WHERE student_id = ? AND class_id = ?',
-                    [student_id, new_class_id]
-                );
+      // 3. Nếu là khóa mới và có chọn lớp mới - thêm vào lớp mới
+      if (renewal_type === 'new' && new_class_id) {
+        // Kiểm tra xem đã trong lớp chưa
+        const [existingClass] = await conn.query(
+          'SELECT * FROM class_students WHERE student_id = ? AND class_id = ?',
+          [student_id, new_class_id]
+        );
 
-                if (!existingClass.length) {
-                    // Lấy branch của lớp mới
-                    const [classRows] = await conn.query('SELECT branch_id FROM classes WHERE id = ?', [new_class_id]);
-                    const branchId = classRows[0]?.branch_id;
+        if (!existingClass.length) {
+          // Lấy branch của lớp mới
+          const [classRows] = await conn.query('SELECT branch_id FROM classes WHERE id = ?', [new_class_id]);
+          const branchId = classRows[0]?.branch_id;
 
-                    await conn.query(`
+          await conn.query(`
             INSERT INTO class_students (student_id, class_id, branch_id, status, enrolled_at)
             VALUES (?, ?, ?, 'active', NOW())
           `, [student_id, new_class_id, branchId]);
-                }
-            }
+        }
+      }
 
-            // 4. Ghi nhận revenue nếu có đặt cọc
-            if (deposit_amount > 0) {
-                // Lấy EC của student
-                const ecId = student.ec_id || created_by;
+      // 4. Ghi nhận revenue nếu có đặt cọc
+      if (deposit_amount > 0) {
+        // Lấy EC của student
+        const ecId = student.ec_id || created_by;
 
-                await conn.query(`
+        await conn.query(`
           INSERT INTO revenues (student_id, ec_id, amount, type, note, created_at)
           VALUES (?, ?, ?, 'renewal_deposit', ?, NOW())
         `, [student_id, ecId, deposit_amount, `Cọc tái phí - ${pkg.name}`]);
-            }
+      }
 
-            await conn.commit();
+      await conn.commit();
 
-            return {
-                renewal_id: renewalResult.insertId,
-                new_fee_end_date: newFeeEndDate.toISOString().slice(0, 10),
-                final_price: finalPrice,
-                remaining_amount: remainingAmount
-            };
+      return {
+        renewal_id: renewalResult.insertId,
+        new_fee_end_date: newFeeEndDate.toISOString().slice(0, 10),
+        final_price: finalPrice,
+        remaining_amount: remainingAmount
+      };
 
-        } catch (error) {
-            await conn.rollback();
-            throw error;
-        } finally {
-            conn.release();
-        }
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
     }
+  }
 
-    // Lấy lịch sử tái phí của học sinh
-    async getRenewalHistory(studentId) {
-        const [rows] = await this.db.query(`
+  // Lấy lịch sử tái phí của học sinh
+  async getRenewalHistory(studentId) {
+    const [rows] = await this.db.query(`
       SELECT sr.*, 
              p.name as package_name, p.sessions,
              promo.name as promotion_name,
@@ -265,20 +265,20 @@ class RenewalModel extends BaseModel {
       ORDER BY sr.created_at DESC
     `, [studentId]);
 
-        return rows;
+    return rows;
+  }
+
+  // Báo cáo tái phí theo tháng
+  async getRenewalReport(month, branchId = null) {
+    let branchFilter = '';
+    const params = [month];
+
+    if (branchId) {
+      branchFilter = 'AND cs.branch_id = ?';
+      params.push(branchId);
     }
 
-    // Báo cáo tái phí theo tháng
-    async getRenewalReport(month, branchId = null) {
-        let branchFilter = '';
-        const params = [month];
-
-        if (branchId) {
-            branchFilter = 'AND cs.branch_id = ?';
-            params.push(branchId);
-        }
-
-        const [rows] = await this.db.query(`
+    const [rows] = await this.db.query(`
       SELECT 
         DATE(sr.created_at) as date,
         COUNT(*) as count,
@@ -294,8 +294,8 @@ class RenewalModel extends BaseModel {
       ORDER BY date
     `, params);
 
-        return rows;
-    }
+    return rows;
+  }
 }
 
 export default new RenewalModel();

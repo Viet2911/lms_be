@@ -30,7 +30,7 @@ const limiter = rateLimit({
 // CORS - Allow all origins for now
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : ['https://lms-fe-blue.vercel.app', 'http://localhost:3001', 'http://localhost:5500', 'http://127.0.0.1:5500'];
+  : ['https://lms-fe-blue.vercel.app', 'http://localhost:3000', 'http://localhost:5500', 'http://127.0.0.1:5500'];
 
 app.use(cors({
   origin: (origin, callback) => {

@@ -358,6 +358,8 @@ export const convertToStudent = async (req, res, next) => {
       scholarshipMonths, defaultScholarshipMonths, scholarshipNeedsApproval,
       // Payment
       paymentStatus, depositAmount, paidAmount,
+      // Confirmed amount (số tiền đã xác nhận nhận được)
+      confirmedAmount,
       // Promo
       programId, gifts,
       note
@@ -376,17 +378,15 @@ export const convertToStudent = async (req, res, next) => {
       ? gifts.map(g => g.name).join(', ')
       : '';
 
-    // Tính tiền cọc (nếu có)
-    const deposit = parseFloat(depositAmount) || 0;
-    const paid = parseFloat(paidAmount) || 0;
-    const totalPaid = deposit + paid; // Tổng tiền đã thu = cọc + thanh toán
-
-    // Xác định fee_status dựa trên số tiền đã đóng
-    let feeStatus = 'pending';
+    // Số tiền đã xác nhận nhận được
+    const actualPaid = parseFloat(confirmedAmount) || 0;
     const feeTotalNum = parseFloat(feeTotal) || 0;
-    if (totalPaid >= feeTotalNum && feeTotalNum > 0) {
+
+    // Xác định fee_status dựa trên số tiền đã xác nhận
+    let feeStatus = 'pending';
+    if (actualPaid >= feeTotalNum && feeTotalNum > 0) {
       feeStatus = 'paid';
-    } else if (totalPaid > 0) {
+    } else if (actualPaid > 0) {
       feeStatus = 'partial';
     }
 
@@ -409,14 +409,15 @@ export const convertToStudent = async (req, res, next) => {
       start_date: startDate || null,
       // Package info
       package_id: packageId || null,
-      fee_original: feeOriginal || 0,
-      fee_discount: feeDiscount || 0,
+      tuition_fee: feeOriginal || 0,
+      discount_amount: feeDiscount || 0,
       fee_total: feeTotal || 0,
       // Scholarship
       scholarship_months: scholarshipMonths || 0,
-      // Payment - actual_revenue = tổng tiền đã thu
-      deposit_amount: deposit,
-      actual_revenue: totalPaid,
+      // Payment - Ghi nhận số tiền đã xác nhận
+      deposit_amount: actualPaid,
+      paid_amount: actualPaid,
+      actual_revenue: actualPaid,
       fee_status: feeStatus,
       payment_status: feeStatus,
       // Gifts & Note
@@ -430,13 +431,13 @@ export const convertToStudent = async (req, res, next) => {
 
     const student = await StudentModel.create(studentData);
 
-    // Ghi nhận vào revenues nếu có thanh toán
-    if (totalPaid > 0) {
+    // Ghi nhận vào revenues nếu có tiền đã xác nhận
+    if (actualPaid > 0) {
       const pool = (await import('../config/database.js')).default;
       await pool.query(`
         INSERT INTO revenues (branch_id, student_id, ec_id, amount, type, payment_method, note, created_at)
-        VALUES (?, ?, ?, ?, 'tuition', 'cash', ?, NOW())
-      `, [lead.branch_id, student.id, req.user.id, totalPaid, deposit > 0 ? 'Tiền cọc khi convert' : 'Thanh toán khi convert']);
+        VALUES (?, ?, ?, ?, 'tuition', 'bank_transfer', ?, NOW())
+      `, [lead.branch_id, student.id, req.user.id, actualPaid, 'Thanh toán khi chuyển đổi']);
     }
 
     // Trừ quà tặng trong kho nếu có
@@ -449,11 +450,11 @@ export const convertToStudent = async (req, res, next) => {
     }
 
     // Cập nhật lead
-    await LeadModel.convertToStudent(id, student.id, totalPaid, deposit, feeTotal || 0);
+    await LeadModel.convertToStudent(id, student.id, 0, 0, feeTotal || 0);
 
     // Gửi thông báo Telegram cho CM
     try {
-      const remaining = feeTotalNum - totalPaid;
+      const remaining = feeTotalNum - actualPaid;
       await telegramService.sendMessage(
         `🎉 <b>Học viên mới${classId ? '' : ' chờ xếp lớp'}!</b>\n` +
         `👶 HS: ${studentName || lead.student_name}\n` +
@@ -461,7 +462,7 @@ export const convertToStudent = async (req, res, next) => {
         `👤 PH: ${customerName || lead.customer_name} - ${customerPhone || lead.customer_phone}\n` +
         `📚 Môn: ${lead.subject_name || '-'}\n` +
         `💰 Học phí: ${feeTotalNum.toLocaleString('vi-VN')}đ\n` +
-        `💵 Đã đóng: ${totalPaid.toLocaleString('vi-VN')}đ\n` +
+        `💵 Đã đóng: ${actualPaid.toLocaleString('vi-VN')}đ\n` +
         `📌 Còn nợ: ${remaining.toLocaleString('vi-VN')}đ\n` +
         `🎁 Quà: ${giftsStr || 'Không'}\n` +
         `👨‍💼 EC: ${lead.sale_name || '-'}\n` +
