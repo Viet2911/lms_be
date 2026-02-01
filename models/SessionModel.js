@@ -103,6 +103,122 @@ class SessionModel extends BaseModel {
     const [rows] = await this.db.query(sql, params);
     return rows;
   }
+
+  /**
+   * Dời buổi học - tất cả buổi từ buổi này trở đi sẽ dời theo
+   * @param {number} sessionId - ID buổi học cần dời
+   * @param {string} newDate - Ngày mới (YYYY-MM-DD)
+   * @param {string} reason - Lý do dời (optional)
+   * @param {boolean} shiftFollowing - Có dời các buổi sau không (default: true)
+   */
+  async rescheduleSession(sessionId, newDate, reason = null, shiftFollowing = true) {
+    const conn = await this.db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Lấy thông tin buổi học cần dời
+      const [sessions] = await conn.query(
+        'SELECT * FROM sessions WHERE id = ?',
+        [sessionId]
+      );
+
+      if (!sessions.length) {
+        throw new Error('Không tìm thấy buổi học');
+      }
+
+      const session = sessions[0];
+      const oldDate = new Date(session.session_date);
+      const targetDate = new Date(newDate);
+
+      // Tính số ngày chênh lệch
+      const daysDiff = Math.round((targetDate - oldDate) / (1000 * 60 * 60 * 24));
+
+      if (daysDiff === 0) {
+        throw new Error('Ngày mới trùng với ngày cũ');
+      }
+
+      // Cập nhật buổi học hiện tại
+      await conn.query(
+        `UPDATE sessions 
+         SET session_date = ?, 
+             reschedule_reason = ?,
+             original_date = COALESCE(original_date, ?),
+             updated_at = NOW()
+         WHERE id = ?`,
+        [newDate, reason, session.session_date, sessionId]
+      );
+
+      let affectedCount = 1;
+
+      // Nếu dời các buổi sau
+      if (shiftFollowing && daysDiff !== 0) {
+        // Lấy tất cả buổi sau buổi này (cùng lớp, session_number lớn hơn)
+        const [followingSessions] = await conn.query(
+          `SELECT id, session_date FROM sessions 
+           WHERE class_id = ? AND session_number > ? 
+           ORDER BY session_number ASC`,
+          [session.class_id, session.session_number]
+        );
+
+        // Dời từng buổi
+        for (const s of followingSessions) {
+          const newSessionDate = new Date(s.session_date);
+          newSessionDate.setDate(newSessionDate.getDate() + daysDiff);
+
+          await conn.query(
+            `UPDATE sessions 
+             SET session_date = ?,
+                 original_date = COALESCE(original_date, session_date),
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [newSessionDate.toISOString().split('T')[0], s.id]
+          );
+          affectedCount++;
+        }
+      }
+
+      await conn.commit();
+
+      return {
+        success: true,
+        message: `Đã dời ${affectedCount} buổi học`,
+        affectedSessions: affectedCount,
+        daysMoved: daysDiff
+      };
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  /**
+   * Hủy buổi học (đánh dấu cancelled, không xóa)
+   */
+  async cancelSession(sessionId, reason = null) {
+    await this.db.query(
+      `UPDATE sessions 
+       SET status = 'cancelled', cancel_reason = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [reason, sessionId]
+    );
+    return { success: true };
+  }
+
+  /**
+   * Lấy lịch sử dời buổi của lớp
+   */
+  async getRescheduleHistory(classId) {
+    const [rows] = await this.db.query(
+      `SELECT id, session_number, session_date, original_date, reschedule_reason, status
+       FROM sessions 
+       WHERE class_id = ? AND original_date IS NOT NULL
+       ORDER BY session_number ASC`,
+      [classId]
+    );
+    return rows;
+  }
 }
 
 export default new SessionModel();

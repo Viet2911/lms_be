@@ -19,13 +19,13 @@ app.use(helmet({
 app.use(compression());
 
 // Rate Limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 1000,
-  message: { success: false, message: 'Quá nhiều request, vui lòng thử lại sau' },
-  standardHeaders: true,
-  legacyHeaders: false
-});
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000,
+//   max: 1000,
+//   message: { success: false, message: 'Quá nhiều request, vui lòng thử lại sau' },
+//   standardHeaders: true,
+//   legacyHeaders: false
+// });
 
 // CORS - Allow all origins for now
 const allowedOrigins = process.env.ALLOWED_ORIGINS

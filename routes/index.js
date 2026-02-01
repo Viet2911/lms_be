@@ -123,7 +123,7 @@ router.post('/leads/:id/assign-class', authenticate, authorizeRole(...leadRoles)
 router.post('/leads/:id/convert', authenticate, authorizeRole(...leadRoles), lead.convertToStudent);
 router.post('/leads/:id/call-log', authenticate, authorizeRole(...leadRoles), lead.addCallLog);
 router.get('/leads/:id/call-logs', authenticate, authorizeRole(...leadRoles), lead.getCallLogs);
-
+router.post('/sessions/:id/reschedule', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.reschedule);
 // SESSIONS
 router.get('/sessions', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.getAll);
 router.get('/sessions/today', authenticate, session.getToday);

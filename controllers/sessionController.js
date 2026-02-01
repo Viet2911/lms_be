@@ -135,3 +135,51 @@ export const updateFeedback = async (req, res, next) => {
     res.json({ success: true, message: 'Đã cập nhật nhận xét' });
   } catch (error) { next(error); }
 };
+
+// ==================== RESCHEDULE SESSION ====================
+
+/**
+ * Dời buổi học - tất cả các buổi từ buổi này trở đi sẽ dời theo
+ * POST /api/sessions/:id/reschedule
+ * Body: { newDate: 'YYYY-MM-DD', reason: 'Lý do', shiftFollowing: true/false }
+ */
+export const reschedule = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { newDate, reason, shiftFollowing = true } = req.body;
+
+    if (!newDate) {
+      return res.status(400).json({ success: false, message: 'Vui lòng chọn ngày mới' });
+    }
+
+    const result = await SessionModel.rescheduleSession(id, newDate, reason, shiftFollowing);
+    res.json({ success: true, ...result });
+  } catch (error) { next(error); }
+};
+
+/**
+ * Hủy buổi học
+ * POST /api/sessions/:id/cancel
+ * Body: { reason: 'Lý do' }
+ */
+export const cancel = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    await SessionModel.cancelSession(id, reason);
+    res.json({ success: true, message: 'Đã hủy buổi học' });
+  } catch (error) { next(error); }
+};
+
+/**
+ * Lấy lịch sử dời buổi của lớp
+ * GET /api/classes/:classId/reschedule-history
+ */
+export const getRescheduleHistory = async (req, res, next) => {
+  try {
+    const { classId } = req.params;
+    const history = await SessionModel.getRescheduleHistory(classId);
+    res.json({ success: true, data: history });
+  } catch (error) { next(error); }
+};

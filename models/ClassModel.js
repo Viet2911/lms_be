@@ -119,6 +119,45 @@ class ClassModel extends BaseModel {
     return { success: true };
   }
 
+  // Chuyển học sinh sang lớp khác
+  // Lớp cũ sẽ được đánh dấu 'removed' - KHÔNG tính buổi đã học ở lớp cũ
+  async transferStudent(fromClassId, toClassId, studentId) {
+    const conn = await this.db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // Đánh dấu lớp cũ là 'removed' (không tính buổi)
+      await conn.query(
+        'UPDATE class_students SET status = "removed" WHERE class_id = ? AND student_id = ? AND status = "active"',
+        [fromClassId, studentId]
+      );
+
+      // Thêm vào lớp mới
+      await conn.query(
+        'INSERT INTO class_students (class_id, student_id, status, enrolled_at) VALUES (?, ?, "active", NOW()) ON DUPLICATE KEY UPDATE status = "active", enrolled_at = NOW()',
+        [toClassId, studentId]
+      );
+
+      await conn.commit();
+      return { success: true };
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  // Hoàn thành học ở lớp (khi lên level hoặc hoàn thành khóa)
+  // Lớp sẽ được đánh dấu 'finished' - TÍNH buổi đã học
+  async finishStudentClass(classId, studentId) {
+    await this.db.query(
+      'UPDATE class_students SET status = "finished" WHERE class_id = ? AND student_id = ? AND status = "active"',
+      [classId, studentId]
+    );
+    return { success: true };
+  }
+
   async getStats(branchId = null) {
     let sql = 'SELECT COUNT(*) as total, SUM(status = \'active\') as active FROM classes WHERE 1=1';
     const params = [];

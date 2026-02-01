@@ -18,7 +18,17 @@ class StudentModel extends BaseModel {
              (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id 
               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name,
              (SELECT cs.class_id FROM class_students cs 
-              WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_id
+              WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_id,
+             -- Tính buổi còn lại = tổng buổi - buổi đã điểm danh (từ lớp completed + active)
+             GREATEST(0, COALESCE(s.total_sessions, 0) - COALESCE((
+               SELECT COUNT(a.id) 
+               FROM attendance a
+               JOIN sessions ses ON a.session_id = ses.id
+               JOIN class_students cs ON cs.class_id = ses.class_id AND cs.student_id = s.id
+               WHERE a.student_id = s.id 
+                 AND a.status IN ('present', 'late')
+                 AND cs.status IN ('completed', 'active')
+             ), 0)) as sessions_remaining
       FROM students s
       JOIN branches b ON s.branch_id = b.id
       LEFT JOIN subjects sub ON s.subject_id = sub.id
@@ -83,7 +93,47 @@ class StudentModel extends BaseModel {
               p.name as package_name, p.months as package_months, p.sessions_count as package_sessions,
               cl.name as current_level_name,
               (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id 
-               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name
+               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name,
+              (SELECT cs.class_id FROM class_students cs 
+               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as current_class_id,
+              -- Tính tổng buổi đã học:
+              -- = buổi từ lớp đã HOÀN THÀNH (finished) + buổi ở lớp ĐANG HỌC (active)
+              -- KHÔNG tính buổi từ lớp đã CHUYỂN (removed)
+              (
+                SELECT COALESCE(SUM(sub.sessions), 0) FROM (
+                  -- Buổi từ các lớp đã hoàn thành (status = 'finished')
+                  SELECT COUNT(a.id) as sessions
+                  FROM class_students cs
+                  JOIN attendance a ON a.student_id = s.id 
+                    AND a.session_id IN (SELECT id FROM sessions WHERE class_id = cs.class_id)
+                    AND a.status IN ('present', 'late')
+                  WHERE cs.student_id = s.id AND cs.status = 'finished'
+                  GROUP BY cs.class_id
+                  
+                  UNION ALL
+                  
+                  -- Buổi từ lớp đang học (status = 'active')
+                  SELECT COUNT(a.id) as sessions
+                  FROM class_students cs
+                  JOIN attendance a ON a.student_id = s.id 
+                    AND a.session_id IN (SELECT id FROM sessions WHERE class_id = cs.class_id)
+                    AND a.status IN ('present', 'late')
+                  WHERE cs.student_id = s.id AND cs.status = 'active'
+                  GROUP BY cs.class_id
+                ) sub
+              ) as attended_sessions,
+              -- Tính số buổi còn lại = tổng buổi đăng ký - buổi đã học (chỉ tính finished + active)
+              s.total_sessions - COALESCE((
+                SELECT SUM(sub.sessions) FROM (
+                  SELECT COUNT(a.id) as sessions
+                  FROM class_students cs
+                  JOIN attendance a ON a.student_id = s.id 
+                    AND a.session_id IN (SELECT id FROM sessions WHERE class_id = cs.class_id)
+                    AND a.status IN ('present', 'late')
+                  WHERE cs.student_id = s.id AND cs.status IN ('finished', 'active')
+                  GROUP BY cs.class_id
+                ) sub
+              ), 0) as remaining_sessions
        FROM students s
        JOIN branches b ON s.branch_id = b.id
        LEFT JOIN subjects sub ON s.subject_id = sub.id
