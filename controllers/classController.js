@@ -139,3 +139,53 @@ export const removeStudent = async (req, res, next) => {
     res.json({ success: true, message: 'Xóa học sinh khỏi lớp thành công' });
   } catch (error) { next(error); }
 };
+
+export const promoteClass = async (req, res, next) => {
+  try {
+    const sourceId = req.params.id;
+    const { className, levelId, startDate, totalSessions } = req.body;
+
+    if (!className) return res.status(400).json({ success: false, message: 'Vui lòng nhập tên lớp mới' });
+    if (!startDate) return res.status(400).json({ success: false, message: 'Vui lòng chọn ngày khai giảng' });
+
+    // Get source class
+    const source = await ClassModel.findByIdWithRelations(sourceId);
+    if (!source) return res.status(404).json({ success: false, message: 'Không tìm thấy lớp gốc' });
+
+    // Get branch code for new class code
+    const branchCode = req.user.is_system_wide
+      ? (source.branch_code || 'CLS')
+      : getBranchCode(req.user, source.branch_id);
+
+    // Create new class copying schedule/teacher/branch info
+    const newClass = await ClassModel.create({
+      branch_id: source.branch_id,
+      class_code: ClassModel.generateCode(branchCode),
+      class_name: className,
+      subject_id: source.subject_id,
+      level_id: levelId || null,
+      teacher_id: source.teacher_id,
+      cm_id: source.cm_id,
+      study_days: source.study_days,
+      start_time: source.start_time,
+      end_time: source.end_time,
+      room: source.room,
+      start_date: startDate,
+      total_sessions: totalSessions || source.total_sessions || 15,
+      max_students: source.max_students || 15,
+      status: 'active'
+    });
+
+    // Enroll all active students from old class into new class
+    const students = await ClassModel.getStudents(sourceId);
+    for (const student of students) {
+      await ClassModel.addStudent(newClass.id, student.id);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `Đã tạo lớp mới "${className}" với ${students.length} học sinh`,
+      data: { ...newClass, student_count: students.length }
+    });
+  } catch (error) { next(error); }
+};

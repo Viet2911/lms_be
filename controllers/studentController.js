@@ -18,10 +18,10 @@ const getBranchFilter = (req) => {
 
 export const getAll = async (req, res, next) => {
   try {
-    const { status, subjectId, class_id, search, page = 1, limit = 20 } = req.query;
+    const { status, subjectId, class_id, search, fee_status, fee_end_month, page = 1, limit = 20 } = req.query;
     const saleId = req.user.role_name === 'SALE' ? req.user.id : null;
     const branchId = getBranchFilter(req);
-    const result = await StudentModel.findAllWithRelations({ status, subjectId, classId: class_id, search, saleId, branchId, page, limit });
+    const result = await StudentModel.findAllWithRelations({ status, subjectId, classId: class_id, search, saleId, branchId, feeStatus: fee_status, feeEndMonth: fee_end_month, page, limit });
     res.json({ success: true, ...result });
   } catch (error) { next(error); }
 };
@@ -84,27 +84,27 @@ export const create = async (req, res, next) => {
     const branchCode = branch?.code || 'HS';
 
     const student = await StudentModel.create({
-      branch_id: finalBranchId,
+      branch_id: parseInt(finalBranchId),
       student_code: StudentModel.generateCode(branchCode),
       full_name: fullName,
-      birth_year: birthYear || null,
+      birth_year: birthYear ? parseInt(birthYear) : null,
       gender,
-      address,
+      address: address || null,
       parent_name: parentName,
       parent_phone: parentPhone,
-      parent_email: parentEmail,
-      subject_id: subjectId || null,
-      level_id: levelId || null,
-      package_id: packageId || null,
-      tuition_fee: tuitionFee || 0,
-      discount_amount: discountAmount || 0,
-      scholarship_months: scholarshipMonths || 0,
-      gift_id: giftId || null,
+      parent_email: parentEmail || null,
+      subject_id: subjectId ? parseInt(subjectId) : null,
+      level_id: levelId ? parseInt(levelId) : null,
+      package_id: packageId ? parseInt(packageId) : null,
+      tuition_fee: tuitionFee ? parseFloat(tuitionFee) : 0,
+      discount_amount: discountAmount ? parseFloat(discountAmount) : 0,
+      scholarship_months: scholarshipMonths ? parseInt(scholarshipMonths) : 0,
+      gift_id: giftId ? parseInt(giftId) : null,
       gift_name: giftName || null,
-      paid_amount: paidAmount || 0,
+      paid_amount: paidAmount ? parseFloat(paidAmount) : 0,
       payment_status: paymentStatus || 'pending',
       sessions_per_week: 1,
-      note,
+      note: note || null,
       sale_id: req.user.id,
       status: 'active'
     });
@@ -385,4 +385,60 @@ export const uploadAvatar = async (req, res, next) => {
       data: { avatar_url: req.file.path }
     });
   } catch (error) { next(error); }
+};
+
+export const getFeeWarning = async (req, res) => {
+  try {
+    const { type = 'expired', branchId } = req.query;
+
+    let condition = '';
+    switch (type) {
+      case 'expiring':
+        condition = 's.remaining_sessions > 0 AND s.remaining_sessions <= 5';
+        break;
+      case 'low':
+        condition = 's.remaining_sessions > 5 AND s.remaining_sessions <= 10';
+        break;
+      default:
+        condition = 's.remaining_sessions <= 0';
+    }
+
+    const bf = getBranchFilter(req, branchId, 's');
+
+    const [students] = await db.query(
+      `SELECT 
+        s.id, s.student_code, s.full_name, s.parent_phone as phone,
+        s.remaining_sessions, s.total_sessions, s.status,
+        c.class_name, b.code as branch_code
+       FROM students s
+       LEFT JOIN class_students cs ON cs.student_id = s.id AND cs.status = 'active'
+       LEFT JOIN classes c ON cs.class_id = c.id
+       LEFT JOIN branches b ON s.branch_id = b.id
+       WHERE s.status = 'active' AND ${condition} ${bf.sql}
+       GROUP BY s.id
+       ORDER BY s.remaining_sessions ASC`,
+      bf.params
+    );
+
+    const [statsRow] = await db.query(
+      `SELECT 
+        SUM(CASE WHEN remaining_sessions <= 0 THEN 1 ELSE 0 END) as expired,
+        SUM(CASE WHEN remaining_sessions > 0 AND remaining_sessions <= 5 THEN 1 ELSE 0 END) as expiring,
+        SUM(CASE WHEN remaining_sessions > 5 AND remaining_sessions <= 10 THEN 1 ELSE 0 END) as low
+       FROM students WHERE status = 'active' ${bf.sql}`,
+      bf.params
+    );
+
+    res.json({
+      success: true,
+      data: {
+        items: students,
+        stats: statsRow[0] || { expired: 0, expiring: 0, low: 0 }
+      }
+    });
+
+  } catch (error) {
+    console.error('Fee warning error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 };

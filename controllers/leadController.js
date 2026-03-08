@@ -3,6 +3,7 @@ import StudentModel from '../models/StudentModel.js';
 import PromotionModel from '../models/PromotionModel.js';
 import telegramService from '../services/telegramService.js';
 import { getBranchFilter, getCreateBranchId, getBranchCode } from '../utils/branchHelper.js';
+import db from '../config/database.js';
 
 // Helper to get sale filter based on role
 function getSaleFilter(req) {
@@ -480,9 +481,9 @@ export const convertToStudent = async (req, res, next) => {
         studentCode: studentCode,
         full_name: studentName || lead.student_name,
         fee_total: feeTotal || 0,
-        deposit_amount: deposit,
-        actual_revenue: totalPaid,
-        remaining: feeTotalNum - totalPaid
+        deposit_amount: actualPaid,
+        actual_revenue: actualPaid,
+        remaining: feeTotalNum - actualPaid
       }
     });
   } catch (error) { next(error); }
@@ -544,7 +545,8 @@ export const getCallLogs = async (req, res, next) => {
 // Get trial attendance report
 export const getTrialReport = async (req, res, next) => {
   try {
-    const { start_date, end_date, branch_id, source, status, search, page = 1, limit = 50 } = req.query;
+    const { start_date, end_date, branch_id, branchId, source, status, search, page = 1, limit = 50 } = req.query;
+    const effectiveBranchId = branch_id || branchId || getBranchFilter(req);
     const offset = (page - 1) * limit;
 
     // Main query - leads that have scheduled or attended trials
@@ -573,9 +575,9 @@ export const getTrialReport = async (req, res, next) => {
       sql += ' AND (l.scheduled_date <= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) <= ?))';
       params.push(end_date, end_date);
     }
-    if (branch_id) {
+    if (effectiveBranchId) {
       sql += ' AND l.branch_id = ?';
-      params.push(branch_id);
+      params.push(effectiveBranchId);
     }
     if (source) {
       sql += ' AND l.source = ?';
@@ -621,9 +623,9 @@ export const getTrialReport = async (req, res, next) => {
       summarySql += ' AND (scheduled_date <= ? OR (status IN ("attended", "waiting", "converted") AND DATE(updated_at) <= ?))';
       summaryParams.push(end_date, end_date);
     }
-    if (branch_id) {
+    if (effectiveBranchId) {
       summarySql += ' AND branch_id = ?';
-      summaryParams.push(branch_id);
+      summaryParams.push(effectiveBranchId);
     }
 
     const [summaryResult] = await LeadModel.db.query(summarySql, summaryParams);
@@ -650,10 +652,11 @@ export const getTrialReport = async (req, res, next) => {
 // Export trial report as CSV
 export const exportTrialReport = async (req, res, next) => {
   try {
-    const { start_date, end_date, branch_id, source, status } = req.query;
+    const { start_date, end_date, branch_id, branchId, source, status } = req.query;
+    const effectiveBranchId = branch_id || branchId || getBranchFilter(req);
 
     let sql = `
-      SELECT 
+      SELECT
         l.student_name as 'Tên học sinh',
         l.customer_name as 'Tên phụ huynh',
         l.customer_phone as 'SĐT',
@@ -687,9 +690,9 @@ export const exportTrialReport = async (req, res, next) => {
       sql += ' AND (l.scheduled_date <= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) <= ?))';
       params.push(end_date, end_date);
     }
-    if (branch_id) {
+    if (effectiveBranchId) {
       sql += ' AND l.branch_id = ?';
-      params.push(branch_id);
+      params.push(effectiveBranchId);
     }
     if (source) {
       sql += ' AND l.source = ?';
@@ -720,3 +723,126 @@ export const exportTrialReport = async (req, res, next) => {
     res.send(csvContent);
   } catch (error) { next(error); }
 };
+export const getCalendar = async (req, res) => {
+  try {
+    const { year, month, branchId } = req.query;
+
+    if (!year || !month) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng cung cấp year và month'
+      });
+    }
+
+    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+    const lastDay = new Date(year, month, 0).getDate();
+    const endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+
+    let query = `
+      SELECT 
+        l.id,
+        l.code,
+        l.student_name,
+        l.customer_name,
+        l.customer_phone,
+        l.status,
+        l.scheduled_date,
+        l.scheduled_time,
+        l.source,
+        l.note,
+        b.code as branch_code,
+        b.name as branch_name,
+        u.full_name as sale_name
+      FROM leads l
+      LEFT JOIN branches b ON l.branch_id = b.id
+      LEFT JOIN users u ON l.sale_id = u.id
+      WHERE l.scheduled_date BETWEEN ? AND ?
+    `;
+
+    const params = [startDate, endDate];
+
+    // Branch filter
+    if (branchId) {
+      query += ` AND l.branch_id = ?`;
+      params.push(branchId);
+    } else if (!req.user.is_system_wide && req.user.primaryBranch) {
+      // Nếu không phải system wide, lọc theo branch của user
+      query += ` AND l.branch_id = ?`;
+      params.push(req.user.primaryBranch.id);
+    }
+
+    // Role-based filter
+    const role = req.user.role_name;
+    if (!['ADMIN', 'GDV', 'CHU', 'QLCS', 'HOEC'].includes(role)) {
+      query += ` AND l.sale_id = ?`;
+      params.push(req.user.id);
+    }
+
+    query += ` ORDER BY l.scheduled_date, l.scheduled_time`;
+
+    const [rows] = await db.query(query, params);
+
+    res.json({ success: true, data: rows });
+
+  } catch (error) {
+    console.error('Get calendar error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// GET /api/leads/stats
+export const getLeadStats = async (req, res) => {
+  try {
+    const { branchId } = req.query;
+
+    let query = `SELECT status, COUNT(*) as count FROM leads WHERE 1=1`;
+    const params = [];
+
+    // Branch filter
+    if (branchId) {
+      query += ` AND branch_id = ?`;
+      params.push(branchId);
+    } else if (!req.user.is_system_wide && req.user.primaryBranch) {
+      query += ` AND branch_id = ?`;
+      params.push(req.user.primaryBranch.id);
+    }
+
+    // Role-based filter
+    const role = req.user.role_name;
+    if (!['ADMIN', 'GDV', 'CHU', 'QLCS', 'HOEC'].includes(role)) {
+      query += ` AND sale_id = ?`;
+      params.push(req.user.id);
+    }
+
+    query += ` GROUP BY status`;
+
+    const [rows] = await db.query(query, params);
+
+    const stats = {
+      total: 0,
+      new: 0,
+      scheduled: 0,
+      attended: 0,
+      waiting: 0,
+      trial: 0,
+      converted: 0,
+      cancelled: 0,
+      no_show: 0
+    };
+
+    rows.forEach(row => {
+      if (Object.prototype.hasOwnProperty.call(stats, row.status)) {
+        stats[row.status] = row.count;
+      }
+      stats.total += row.count;
+    });
+
+    res.json({ success: true, data: stats });
+
+  } catch (error) {
+    console.error('Get lead stats error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+

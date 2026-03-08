@@ -17,18 +17,8 @@ class StudentModel extends BaseModel {
              cl.name as current_level_name,
              (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id 
               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name,
-             (SELECT cs.class_id FROM class_students cs 
-              WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_id,
-             -- Tính buổi còn lại = tổng buổi - buổi đã điểm danh (từ lớp completed + active)
-             GREATEST(0, COALESCE(s.total_sessions, 0) - COALESCE((
-               SELECT COUNT(a.id) 
-               FROM attendance a
-               JOIN sessions ses ON a.session_id = ses.id
-               JOIN class_students cs ON cs.class_id = ses.class_id AND cs.student_id = s.id
-               WHERE a.student_id = s.id 
-                 AND a.status IN ('present', 'late')
-                 AND cs.status IN ('completed', 'active')
-             ), 0)) as sessions_remaining
+             (SELECT cs.class_id FROM class_students cs
+              WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_id
       FROM students s
       JOIN branches b ON s.branch_id = b.id
       LEFT JOIN subjects sub ON s.subject_id = sub.id
@@ -75,7 +65,7 @@ class StudentModel extends BaseModel {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
-    const countSql = sql.replace(/SELECT .* FROM/, 'SELECT COUNT(*) as total FROM');
+    const countSql = `SELECT COUNT(*) as total FROM (${sql}) as sub`;
     const [countRows] = await this.db.query(countSql, params);
     const total = countRows[0]?.total || 0;
 
@@ -455,7 +445,7 @@ class StudentModel extends BaseModel {
       const newActualRevenue = currentRevenue + paymentAmount;
 
       // Lấy tổng học phí
-      const feeTotal = parseFloat(student.tuition_fee) || parseFloat(student.fee_total) || 0;
+      const feeTotal = parseFloat(student.fee_total) || parseFloat(student.tuition_fee) || 0;
 
       // Xác định trạng thái thanh toán mới
       let newPaymentStatus = 'partial';

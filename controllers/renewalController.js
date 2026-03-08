@@ -4,11 +4,17 @@ import { getBranchFilter } from '../utils/branchHelper.js';
 // Lấy danh sách học sinh cần tái phí
 export const getStudentsForRenewal = async (req, res, next) => {
     try {
-        const { month, branch_id, class_id } = req.query;
+        const { month, branchId: queryBranchId, branch_id, class_id, page = 1, limit = 20 } = req.query;
         const currentMonth = month || new Date().toISOString().slice(0, 7);
-        const branchId = branch_id || getBranchFilter(req);
+        const branchId = queryBranchId || branch_id || getBranchFilter(req);
 
-        const result = await RenewalModel.getStudentsForRenewal(currentMonth, branchId, class_id);
+        const result = await RenewalModel.getStudentsForRenewal(
+            currentMonth,
+            branchId,
+            class_id || null,
+            page,
+            limit
+        );
 
         res.json({ success: true, data: result });
     } catch (error) { next(error); }
@@ -50,9 +56,9 @@ export const getRenewalHistory = async (req, res, next) => {
 // Báo cáo tái phí theo tháng
 export const getRenewalReport = async (req, res, next) => {
     try {
-        const { month, branch_id } = req.query;
+        const { month, branchId: queryBranchId, branch_id } = req.query;
         const currentMonth = month || new Date().toISOString().slice(0, 7);
-        const branchId = branch_id || getBranchFilter(req);
+        const branchId = queryBranchId || branch_id || getBranchFilter(req);
 
         const report = await RenewalModel.getRenewalReport(currentMonth, branchId);
         res.json({ success: true, data: report });

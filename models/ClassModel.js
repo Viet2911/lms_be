@@ -66,20 +66,30 @@ class ClassModel extends BaseModel {
 
   async getStudents(classId) {
     const [rows] = await this.db.query(
-      `SELECT s.*, cs.enrolled_at,
-              (SELECT COUNT(*) FROM attendance a JOIN sessions ss ON a.session_id = ss.id 
-               WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'present') as ontime_count,
-              (SELECT COUNT(*) FROM attendance a JOIN sessions ss ON a.session_id = ss.id 
-               WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'late') as late_count,
-              (SELECT COUNT(*) FROM attendance a JOIN sessions ss ON a.session_id = ss.id 
-               WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'excused') as excused_count,
-              (SELECT COUNT(*) FROM attendance a JOIN sessions ss ON a.session_id = ss.id 
-               WHERE a.student_id = s.id AND ss.class_id = ? AND a.status = 'absent') as absent_count
+      `SELECT 
+         s.*, 
+         cs.enrolled_at,
+         COALESCE(att.ontime_count, 0) as ontime_count,
+         COALESCE(att.late_count, 0) as late_count,
+         COALESCE(att.excused_count, 0) as excused_count,
+         COALESCE(att.absent_count, 0) as absent_count
        FROM students s
        JOIN class_students cs ON s.id = cs.student_id
+       LEFT JOIN (
+         SELECT 
+           a.student_id,
+           SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as ontime_count,
+           SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late_count,
+           SUM(CASE WHEN a.status = 'excused' THEN 1 ELSE 0 END) as excused_count,
+           SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) as absent_count
+         FROM attendance a
+         JOIN sessions ss ON a.session_id = ss.id
+         WHERE ss.class_id = ?
+         GROUP BY a.student_id
+       ) att ON att.student_id = s.id
        WHERE cs.class_id = ? AND cs.status = 'active'
        ORDER BY s.full_name`,
-      [classId, classId, classId, classId, classId]
+      [classId, classId]
     );
     return rows;
   }

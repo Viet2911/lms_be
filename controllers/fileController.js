@@ -1,10 +1,13 @@
 import FileModel from '../models/FileModel.js';
+import { getBranchFilter } from '../utils/branchHelper.js';
 
 export const getAll = async (req, res, next) => {
   try {
     const { search, type, category, page = 1, limit = 50 } = req.query;
+    const branchId = getBranchFilter(req);
+    const isAdmin = req.user.is_system_wide;
     const result = await FileModel.findAllByUser({
-      userId: req.user.id, isAdmin: req.user.role_name === 'ADMIN',
+      userId: req.user.id, isAdmin, branchId,
       search, type, category, page, limit
     });
     res.json({ success: true, ...result });

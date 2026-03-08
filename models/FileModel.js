@@ -6,7 +6,7 @@ class FileModel extends BaseModel {
     super('files');
   }
 
-  async findAllByUser({ userId, isAdmin, search, type, category, page = 1, limit = 50 } = {}) {
+  async findAllByUser({ userId, isAdmin, branchId, search, type, category, page = 1, limit = 50 } = {}) {
     let sql = `
       SELECT f.*, u.full_name as uploader_name
       FROM files f
@@ -15,7 +15,21 @@ class FileModel extends BaseModel {
     `;
     const params = [];
 
-    if (!isAdmin && userId) { sql += ' AND f.uploaded_by = ?'; params.push(userId); }
+    if (branchId) {
+      // Filter by branch: only files uploaded by users in that branch
+      sql += ` AND f.uploaded_by IN (
+        SELECT user_id FROM user_branches WHERE branch_id = ?
+      )`;
+      params.push(branchId);
+    } else if (!isAdmin && userId) {
+      // Non-admin without branch filter: show files from user's own branches
+      sql += ` AND f.uploaded_by IN (
+        SELECT user_id FROM user_branches WHERE branch_id IN (
+          SELECT branch_id FROM user_branches WHERE user_id = ?
+        )
+      )`;
+      params.push(userId);
+    }
     if (search) {
       sql += ' AND (f.filename LIKE ? OR f.description LIKE ?)';
       params.push(`%${search}%`, `%${search}%`);

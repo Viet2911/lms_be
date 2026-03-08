@@ -7,8 +7,8 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD || process.env.DB_PASS || 'JsyMJSxTQHHUfpzwrSoJWBusIMIcHZMn',
   database: process.env.DB_NAME || 'railway',
   waitForConnections: true,
-  connectionLimit: 20,
-  queueLimit: 0,
+  connectionLimit: 50,
+  queueLimit: 100,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
   // Timezone

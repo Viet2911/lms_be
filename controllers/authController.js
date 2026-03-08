@@ -53,9 +53,9 @@ export const changePassword = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Vui lòng nhập đầy đủ thông tin' });
     }
 
-    // Password strength validation
-    if (newPassword.length < 8) {
-      return res.status(400).json({ success: false, message: 'Mật khẩu phải có ít nhất 8 ký tự' });
+    // Password complexity: ≥8 ký tự, có hoa + thường + số (đồng bộ với validate.js)
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: 'Mật khẩu phải có ít nhất 8 ký tự, gồm chữ hoa, chữ thường và số' });
     }
 
     const user = await UserModel.findById(req.user.id);
@@ -71,8 +71,13 @@ export const changePassword = async (req, res, next) => {
 
 export const updateProfile = async (req, res, next) => {
   try {
+    // Sau khi qua validate.js middleware, phone/email đã được sanitize
     const { fullName, email, phone } = req.body;
-    await UserModel.update(req.user.id, { full_name: fullName, email, phone });
+    const data = {};
+    if (fullName !== undefined) data.full_name = fullName;
+    if (email !== undefined) data.email = email || null;
+    if (phone !== undefined) data.phone = phone || null;
+    await UserModel.update(req.user.id, data);
     res.json({ success: true, message: 'Cập nhật thành công' });
   } catch (error) { next(error); }
 };

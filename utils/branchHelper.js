@@ -40,28 +40,11 @@ export const canAccessBranch = (user, branchId) => {
  * @returns {number|null}
  */
 export const getCreateBranchId = (req) => {
-  console.log('=== getCreateBranchId DEBUG ===');
-  console.log('req.body.branchId:', req.body.branchId);
-  console.log('req.user.branches:', req.user.branches);
-  console.log('req.user.primaryBranch:', req.user.primaryBranch);
-  console.log('req.user.is_system_wide:', req.user.is_system_wide);
-  
   if (req.body.branchId) {
     const branchId = parseInt(req.body.branchId);
-    const hasAccess = canAccessBranch(req.user, branchId);
-    console.log('Parsed branchId:', branchId);
-    console.log('canAccessBranch result:', hasAccess);
-    
-    if (hasAccess) {
-      console.log('Returning branchId from body:', branchId);
-      return branchId;
-    }
+    if (canAccessBranch(req.user, branchId)) return branchId;
   }
-  
-  const fallbackId = req.user.primaryBranch?.id || req.user.branches?.[0]?.id || null;
-  console.log('Returning fallback branchId:', fallbackId);
-  console.log('===============================');
-  return fallbackId;
+  return req.user.primaryBranch?.id || req.user.branches?.[0]?.id || null;
 };
 
 /**

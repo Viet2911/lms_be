@@ -197,11 +197,16 @@ export const bulkSetKpi = async (req, res, next) => {
 // Lấy danh sách dự thu (leads chưa đóng đủ tiền)
 export const getExpectedRevenueList = async (req, res, next) => {
   try {
-    const { month, branch_id } = req.query;
+    const { month, branch_id, page = 1, limit = 50 } = req.query;
     const currentMonth = month || new Date().toISOString().slice(0, 7);
     const branchId = branch_id || null;
 
-    const list = await SaleReportModel.getExpectedRevenueList(currentMonth, branchId);
+    const list = await SaleReportModel.getExpectedRevenueList(
+      currentMonth,
+      branchId,
+      page,
+      limit
+    );
 
     res.json({ success: true, data: list });
   } catch (error) { next(error); }
@@ -210,11 +215,16 @@ export const getExpectedRevenueList = async (req, res, next) => {
 // Lấy danh sách đã đóng đủ 100%
 export const getFullPaidList = async (req, res, next) => {
   try {
-    const { month, branch_id } = req.query;
+    const { month, branch_id, page = 1, limit = 50 } = req.query;
     const currentMonth = month || new Date().toISOString().slice(0, 7);
     const branchId = branch_id || null;
 
-    const list = await SaleReportModel.getFullPaidList(currentMonth, branchId);
+    const list = await SaleReportModel.getFullPaidList(
+      currentMonth,
+      branchId,
+      page,
+      limit
+    );
 
     res.json({ success: true, data: list });
   } catch (error) { next(error); }

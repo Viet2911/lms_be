@@ -1,6 +1,7 @@
 import AttendanceModel from '../models/AttendanceModel.js';
 import TelegramService from '../services/telegramService.js';
 import db from '../config/database.js';
+import { getBranchFilter } from '../utils/branchHelper.js';
 
 export const getStudentsForSession = async (req, res, next) => {
   try {
@@ -147,7 +148,7 @@ export const update = async (req, res, next) => {
 
 export const getStudentsWithWarnings = async (req, res, next) => {
   try {
-    const branchId = req.query.branchId || null;
+    const branchId = getBranchFilter(req);
     const students = await AttendanceModel.getStudentsWithWarnings(branchId);
     res.json({ success: true, data: students });
   } catch (error) { next(error); }

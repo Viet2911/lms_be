@@ -6,7 +6,7 @@ class RenewalModel extends BaseModel {
   }
 
   // Lấy danh sách học sinh cần tái phí
-  async getStudentsForRenewal(month, branchId = null, classId = null) {
+  async getStudentsForRenewal(month, branchId = null, classId = null, page = 1, limit = 20) {
     // Tính ngày đầu và cuối của tháng được chọn
     const monthStart = `${month}-01`;
     const monthEnd = new Date(month + '-01');
@@ -23,20 +23,106 @@ class RenewalModel extends BaseModel {
     const thirtyDaysLaterStr = thirtyDaysLater.toISOString().slice(0, 10);
 
     let branchFilter = '';
-    const params = [monthStart, monthEndStr, today, thirtyDaysLaterStr, today];
-
     if (branchId) {
       branchFilter = 'AND cs.branch_id = ?';
-      params.push(branchId);
     }
 
     let classFilter = '';
     if (classId) {
       classFilter = 'AND cs.class_id = ?';
-      params.push(classId);
     }
 
-    const sql = `
+    // Base FROM/JOIN/WHERE used for both stats và danh sách
+    const baseFromWhere = `
+      FROM students s
+      LEFT JOIN class_students cs ON cs.student_id = s.id AND cs.status = 'active'
+      LEFT JOIN classes c ON c.id = cs.class_id
+      LEFT JOIN subjects subj ON subj.id = c.subject_id
+      LEFT JOIN users cm ON cm.id = c.cm_id
+      LEFT JOIN branches b ON b.id = cs.branch_id
+      LEFT JOIN packages p ON p.id = s.package_id
+      LEFT JOIN (
+        SELECT student_id, COUNT(*) as completed_sessions
+        FROM session_attendance
+        WHERE status IN ('present', 'late')
+        GROUP BY student_id
+      ) att ON att.student_id = s.id
+      WHERE s.status = 'active'
+        AND (
+          s.fee_end_date BETWEEN ? AND ?
+          OR s.fee_end_date < ?
+          OR EXISTS (
+            SELECT 1 FROM student_renewals sr 
+            WHERE sr.student_id = s.id 
+              AND sr.created_at BETWEEN ? AND ?
+          )
+        )
+        ${branchFilter}
+        ${classFilter}
+    `;
+
+    const baseParams = [
+      monthStart,
+      monthEndStr,
+      today,
+      monthStart,
+      monthEndStr,
+    ];
+
+    if (branchId) {
+      baseParams.push(branchId);
+    }
+
+    if (classId) {
+      baseParams.push(classId);
+    }
+
+    // Stats query: đếm theo trạng thái mà không cần LIMIT
+    const statsSql = `
+      SELECT 
+        COUNT(*) as total,
+        SUM(CASE status WHEN 'expiring' THEN 1 ELSE 0 END) as expiring,
+        SUM(CASE status WHEN 'expired' THEN 1 ELSE 0 END) as expired,
+        SUM(CASE status WHEN 'renewed' THEN 1 ELSE 0 END) as renewed
+      FROM (
+        SELECT 
+          s.id,
+          CASE 
+            WHEN EXISTS (
+              SELECT 1 FROM student_renewals sr 
+              WHERE sr.student_id = s.id 
+                AND sr.created_at BETWEEN ? AND ?
+            ) THEN 'renewed'
+            WHEN s.fee_end_date < ? THEN 'expired'
+            WHEN s.fee_end_date <= ? THEN 'expiring'
+            ELSE 'active'
+          END as status
+        ${baseFromWhere}
+        GROUP BY s.id
+      ) t
+    `;
+
+    const statsParams = [
+      monthStart,
+      monthEndStr,
+      today,
+      thirtyDaysLaterStr,
+      ...baseParams,
+    ];
+
+    const [statsRows] = await this.db.query(statsSql, statsParams);
+    const stats = statsRows[0] || {
+      total: 0,
+      expiring: 0,
+      expired: 0,
+      renewed: 0,
+    };
+
+    const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 20, 100));
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const offset = (safePage - 1) * safeLimit;
+
+    const listSql = `
       SELECT 
         s.id,
         s.student_code,
@@ -58,37 +144,13 @@ class RenewalModel extends BaseModel {
           WHEN EXISTS (
             SELECT 1 FROM student_renewals sr 
             WHERE sr.student_id = s.id 
-              AND DATE_FORMAT(sr.created_at, '%Y-%m') = DATE_FORMAT(?, '%Y-%m')
+              AND sr.created_at BETWEEN ? AND ?
           ) THEN 'renewed'
           WHEN s.fee_end_date < ? THEN 'expired'
           WHEN s.fee_end_date <= ? THEN 'expiring'
           ELSE 'active'
         END as status
-      FROM students s
-      LEFT JOIN class_students cs ON cs.student_id = s.id AND cs.status = 'active'
-      LEFT JOIN classes c ON c.id = cs.class_id
-      LEFT JOIN subjects subj ON subj.id = c.subject_id
-      LEFT JOIN users cm ON cm.id = c.cm_id
-      LEFT JOIN branches b ON b.id = cs.branch_id
-      LEFT JOIN packages p ON p.id = s.package_id
-      LEFT JOIN (
-        SELECT student_id, COUNT(*) as completed_sessions
-        FROM session_attendance
-        WHERE status IN ('present', 'late')
-        GROUP BY student_id
-      ) att ON att.student_id = s.id
-      WHERE s.status = 'active'
-        AND (
-          s.fee_end_date BETWEEN ? AND ?
-          OR s.fee_end_date < ?
-          OR EXISTS (
-            SELECT 1 FROM student_renewals sr 
-            WHERE sr.student_id = s.id 
-              AND DATE_FORMAT(sr.created_at, '%Y-%m') = DATE_FORMAT(?, '%Y-%m')
-          )
-        )
-        ${branchFilter}
-        ${classFilter}
+      ${baseFromWhere}
       GROUP BY s.id
       ORDER BY 
         CASE 
@@ -97,21 +159,31 @@ class RenewalModel extends BaseModel {
           ELSE 3
         END,
         s.fee_end_date ASC
+      LIMIT ? OFFSET ?
     `;
 
-    params.push(monthStart); // For the last EXISTS check
+    const listParams = [
+      monthStart,
+      monthEndStr,
+      today,
+      thirtyDaysLaterStr,
+      ...baseParams,
+      safeLimit,
+      offset,
+    ];
 
-    const [rows] = await this.db.query(sql, params);
+    const [rows] = await this.db.query(listSql, listParams);
 
-    // Calculate stats
-    const stats = {
-      total: rows.length,
-      expiring: rows.filter(r => r.status === 'expiring').length,
-      expired: rows.filter(r => r.status === 'expired').length,
-      renewed: rows.filter(r => r.status === 'renewed').length
+    return {
+      students: rows,
+      stats,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total: stats.total || 0,
+        totalPages: stats.total ? Math.ceil(stats.total / safeLimit) : 1,
+      },
     };
-
-    return { students: rows, stats };
   }
 
   // Tạo renewal mới
@@ -270,8 +342,14 @@ class RenewalModel extends BaseModel {
 
   // Báo cáo tái phí theo tháng
   async getRenewalReport(month, branchId = null) {
+    const monthStart = `${month}-01`;
+    const monthEnd = new Date(month + '-01');
+    monthEnd.setMonth(monthEnd.getMonth() + 1);
+    monthEnd.setDate(0);
+    const monthEndStr = monthEnd.toISOString().slice(0, 10);
+
     let branchFilter = '';
-    const params = [month];
+    const params = [monthStart, monthEndStr];
 
     if (branchId) {
       branchFilter = 'AND cs.branch_id = ?';
@@ -288,7 +366,7 @@ class RenewalModel extends BaseModel {
       FROM student_renewals sr
       JOIN students s ON s.id = sr.student_id
       LEFT JOIN class_students cs ON cs.student_id = s.id AND cs.status = 'active'
-      WHERE DATE_FORMAT(sr.created_at, '%Y-%m') = ?
+      WHERE sr.created_at BETWEEN ? AND ?
         ${branchFilter}
       GROUP BY DATE(sr.created_at)
       ORDER BY date

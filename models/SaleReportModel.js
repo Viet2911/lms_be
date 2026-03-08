@@ -5,8 +5,18 @@ class SaleReportModel extends BaseModel {
     super('sale_reports');
   }
 
+  getMonthRange(month) {
+    const monthStart = `${month}-01`;
+    const monthEndDate = new Date(monthStart);
+    monthEndDate.setMonth(monthEndDate.getMonth() + 1);
+    const monthEnd = monthEndDate.toISOString().slice(0, 10);
+    return { monthStart, monthEnd };
+  }
+
   // Lấy báo cáo của EC theo tháng - Doanh thu từ revenues (theo tháng thanh toán)
   async getByEcAndMonth(ecId, month) {
+    const { monthStart, monthEnd } = this.getMonthRange(month);
+
     const [rows] = await this.db.query(`
       SELECT 
         u.id as ec_id,
@@ -27,11 +37,12 @@ class SaleReportModel extends BaseModel {
       FROM users u
       LEFT JOIN user_branches ub ON ub.user_id = u.id
       LEFT JOIN branches b ON ub.branch_id = b.id
-      LEFT JOIN ec_kpi_targets kt ON kt.ec_id = u.id AND DATE_FORMAT(kt.target_month, '%Y-%m') = ?
+      LEFT JOIN ec_kpi_targets kt ON kt.ec_id = u.id 
+        AND kt.target_month >= ? AND kt.target_month < ?
       LEFT JOIN (
         SELECT ec_id, SUM(amount) as revenue
         FROM revenues
-        WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND type = 'tuition'
+        WHERE created_at >= ? AND created_at < ? AND type = 'tuition'
         GROUP BY ec_id
       ) rev_stats ON rev_stats.ec_id = u.id
       LEFT JOIN (
@@ -43,16 +54,18 @@ class SaleReportModel extends BaseModel {
           SUM(CASE WHEN l.status = 'converted' THEN 1 ELSE 0 END) as leads_converted
         FROM leads l
         LEFT JOIN students s ON l.converted_student_id = s.id
-        WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ?
+        WHERE l.created_at >= ? AND l.created_at < ?
         GROUP BY l.sale_id
       ) lead_stats ON lead_stats.sale_id = u.id
       WHERE u.id = ?
-    `, [month, month, month, ecId]);
+    `, [monthStart, monthEnd, monthStart, monthEnd, monthStart, monthEnd, ecId]);
     return rows[0] || null;
   }
 
   // Lấy báo cáo tất cả EC theo tháng - Doanh thu từ revenues
   async getAllByMonth(month, branchId = null, managerId = null) {
+    const { monthStart, monthEnd } = this.getMonthRange(month);
+
     let sql = `
       SELECT 
         u.id as ec_id,
@@ -77,11 +90,12 @@ class SaleReportModel extends BaseModel {
       LEFT JOIN users m ON u.manager_id = m.id
       LEFT JOIN user_branches ub ON ub.user_id = u.id
       LEFT JOIN branches b ON ub.branch_id = b.id
-      LEFT JOIN ec_kpi_targets kt ON kt.ec_id = u.id AND DATE_FORMAT(kt.target_month, '%Y-%m') = ?
+      LEFT JOIN ec_kpi_targets kt ON kt.ec_id = u.id 
+        AND kt.target_month >= ? AND kt.target_month < ?
       LEFT JOIN (
         SELECT ec_id, SUM(amount) as revenue
         FROM revenues
-        WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND type = 'tuition'
+        WHERE created_at >= ? AND created_at < ? AND type = 'tuition'
         GROUP BY ec_id
       ) rev_stats ON rev_stats.ec_id = u.id
       LEFT JOIN (
@@ -93,12 +107,12 @@ class SaleReportModel extends BaseModel {
           SUM(CASE WHEN l.status = 'converted' THEN 1 ELSE 0 END) as leads_converted
         FROM leads l
         LEFT JOIN students s ON l.converted_student_id = s.id
-        WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ?
+        WHERE l.created_at >= ? AND l.created_at < ?
         GROUP BY l.sale_id
       ) lead_stats ON lead_stats.sale_id = u.id
       WHERE r.name IN ('ec', 'EC', 'sale', 'SALE')
     `;
-    const params = [month, month, month];
+    const params = [monthStart, monthEnd, monthStart, monthEnd, monthStart, monthEnd];
 
     if (branchId) {
       sql += ' AND ub.branch_id = ?';
@@ -122,55 +136,87 @@ class SaleReportModel extends BaseModel {
 
   // Tổng hợp báo cáo theo tháng - Revenue từ revenues table
   async getSummaryByMonth(month, branchId = null, managerId = null) {
-    // Build user filter for manager hierarchy
-    let userFilter = '';
-    const baseParams = [];
+    const { monthStart, monthEnd } = this.getMonthRange(month);
 
+    let userFilter = '';
     if (managerId) {
       userFilter = `AND (
         r.ec_id IN (SELECT id FROM users WHERE manager_id = ?)
         OR r.ec_id IN (SELECT id FROM users WHERE manager_id IN (SELECT id FROM users WHERE manager_id = ?))
         OR r.ec_id = ?
       )`;
-      baseParams.push(managerId, managerId, managerId);
+    }
+
+    let leadManagerFilter = '';
+    if (managerId) {
+      leadManagerFilter = `AND (
+        l.sale_id IN (SELECT id FROM users WHERE manager_id = ?)
+        OR l.sale_id IN (SELECT id FROM users WHERE manager_id IN (SELECT id FROM users WHERE manager_id = ?))
+        OR l.sale_id = ?
+      )`;
     }
 
     let sql = `
       SELECT 
-        (SELECT COUNT(DISTINCT ec_id) FROM revenues r WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND type = 'tuition' ${branchId ? 'AND branch_id = ?' : ''} ${userFilter}) as total_ec,
-        (SELECT COUNT(*) FROM leads l WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND status IN ('attended', 'trial', 'converted') ${branchId ? 'AND branch_id = ?' : ''} ${managerId ? 'AND (l.sale_id IN (SELECT id FROM users WHERE manager_id = ?) OR l.sale_id IN (SELECT id FROM users WHERE manager_id IN (SELECT id FROM users WHERE manager_id = ?)) OR l.sale_id = ?)' : ''}) as total_checkin,
-        (SELECT COALESCE(SUM(amount), 0) FROM revenues r WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND type = 'tuition' ${branchId ? 'AND branch_id = ?' : ''} ${userFilter}) as total_revenue,
-        (SELECT COALESCE(SUM(s.deposit_amount), 0) FROM leads l JOIN students s ON l.converted_student_id = s.id WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ? AND l.status = 'converted' ${branchId ? 'AND l.branch_id = ?' : ''} ${managerId ? 'AND (l.sale_id IN (SELECT id FROM users WHERE manager_id = ?) OR l.sale_id = ?)' : ''}) as total_deposit,
-        (SELECT COALESCE(SUM(GREATEST(s.fee_total - s.actual_revenue, 0)), 0) FROM leads l JOIN students s ON l.converted_student_id = s.id WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ? AND l.status = 'converted' ${branchId ? 'AND l.branch_id = ?' : ''} ${managerId ? 'AND (l.sale_id IN (SELECT id FROM users WHERE manager_id = ?) OR l.sale_id = ?)' : ''}) as total_expected,
-        (SELECT COUNT(*) FROM leads l WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ? AND l.status = 'converted' ${branchId ? 'AND l.branch_id = ?' : ''} ${managerId ? 'AND (l.sale_id IN (SELECT id FROM users WHERE manager_id = ?) OR l.sale_id = ?)' : ''}) as total_converted
+        (SELECT COUNT(DISTINCT ec_id) 
+         FROM revenues r 
+         WHERE created_at >= ? AND created_at < ? 
+           AND type = 'tuition' 
+           ${branchId ? 'AND branch_id = ?' : ''} 
+           ${userFilter}) as total_ec,
+        (SELECT COUNT(*) 
+         FROM leads l 
+         WHERE l.created_at >= ? AND l.created_at < ? 
+           AND status IN ('attended', 'trial', 'converted') 
+           ${branchId ? 'AND l.branch_id = ?' : ''} 
+           ${leadManagerFilter}) as total_checkin,
+        (SELECT COALESCE(SUM(amount), 0) 
+         FROM revenues r 
+         WHERE created_at >= ? AND created_at < ? 
+           AND type = 'tuition' 
+           ${branchId ? 'AND branch_id = ?' : ''} 
+           ${userFilter}) as total_revenue,
+        (SELECT COALESCE(SUM(GREATEST(s.fee_total - s.actual_revenue, 0)), 0) 
+         FROM leads l 
+         JOIN students s ON l.converted_student_id = s.id 
+         WHERE l.created_at >= ? AND l.created_at < ? 
+           AND l.status = 'converted' 
+           ${branchId ? 'AND l.branch_id = ?' : ''} 
+           ${leadManagerFilter}) as total_expected,
+        (SELECT COUNT(*) 
+         FROM leads l 
+         WHERE l.created_at >= ? AND l.created_at < ? 
+           AND l.status = 'converted' 
+           ${branchId ? 'AND l.branch_id = ?' : ''} 
+           ${leadManagerFilter}) as total_converted
     `;
 
-    // Build params based on filters
-    let params = [];
+    const params = [];
+
     // total_ec
-    params.push(month);
+    params.push(monthStart, monthEnd);
     if (branchId) params.push(branchId);
     if (managerId) params.push(managerId, managerId, managerId);
+
     // total_checkin
-    params.push(month);
+    params.push(monthStart, monthEnd);
     if (branchId) params.push(branchId);
     if (managerId) params.push(managerId, managerId, managerId);
+
     // total_revenue
-    params.push(month);
+    params.push(monthStart, monthEnd);
     if (branchId) params.push(branchId);
     if (managerId) params.push(managerId, managerId, managerId);
-    // total_deposit
-    params.push(month);
-    if (branchId) params.push(branchId);
-    if (managerId) params.push(managerId, managerId);
+
     // total_expected
-    params.push(month);
+    params.push(monthStart, monthEnd);
     if (branchId) params.push(branchId);
-    if (managerId) params.push(managerId, managerId);
+    if (managerId) params.push(managerId, managerId, managerId);
+
     // total_converted
-    params.push(month);
+    params.push(monthStart, monthEnd);
     if (branchId) params.push(branchId);
-    if (managerId) params.push(managerId, managerId);
+    if (managerId) params.push(managerId, managerId, managerId);
 
     const [rows] = await this.db.query(sql, params);
     return rows[0];
@@ -178,12 +224,14 @@ class SaleReportModel extends BaseModel {
 
   // Lấy báo cáo theo cấu trúc Team
   async getByTeamHierarchy(month, branchId = null, currentUser) {
+    const { monthStart, monthEnd } = this.getMonthRange(month);
+
     const role = currentUser.role_name?.toUpperCase();
     const userId = currentUser.id;
 
     // Lấy tất cả managers và EC kèm theo manager của họ
     let managerFilter = '';
-    const params = [month, month, month];
+    const params = [monthStart, monthEnd, monthStart, monthEnd, monthStart, monthEnd];
 
     // Filter theo role của user hiện tại
     if (role === 'HOEC' || role === 'HOCM') {
@@ -228,17 +276,18 @@ class SaleReportModel extends BaseModel {
       LEFT JOIN roles mr ON m.role_id = mr.id
       LEFT JOIN user_branches ub ON ub.user_id = u.id
       LEFT JOIN branches b ON ub.branch_id = b.id
-      LEFT JOIN ec_kpi_targets kt ON kt.ec_id = u.id AND DATE_FORMAT(kt.target_month, '%Y-%m') = ?
+      LEFT JOIN ec_kpi_targets kt ON kt.ec_id = u.id 
+        AND kt.target_month >= ? AND kt.target_month < ?
       LEFT JOIN (
         SELECT ec_id, SUM(amount) as revenue
         FROM revenues
-        WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND type = 'tuition'
+        WHERE created_at >= ? AND created_at < ? AND type = 'tuition'
         GROUP BY ec_id
       ) rev ON rev.ec_id = u.id
       LEFT JOIN (
         SELECT sale_id, COUNT(*) as checkin_count
         FROM leads
-        WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND status IN ('attended', 'trial', 'converted')
+        WHERE created_at >= ? AND created_at < ? AND status IN ('attended', 'trial', 'converted')
         GROUP BY sale_id
       ) lead_stats ON lead_stats.sale_id = u.id
       WHERE u.is_active = 1 
@@ -352,6 +401,8 @@ class SaleReportModel extends BaseModel {
 
   // Bảng xếp hạng theo doanh thu - từ revenues
   async getRankingByRevenue(month, branchId = null, limit = 10) {
+    const { monthStart, monthEnd } = this.getMonthRange(month);
+
     let sql = `
       SELECT 
         u.id as ec_id,
@@ -372,11 +423,12 @@ class SaleReportModel extends BaseModel {
       JOIN roles r ON u.role_id = r.id
       LEFT JOIN user_branches ub ON ub.user_id = u.id
       LEFT JOIN branches b ON ub.branch_id = b.id
-      LEFT JOIN ec_kpi_targets kt ON kt.ec_id = u.id AND DATE_FORMAT(kt.target_month, '%Y-%m') = ?
+      LEFT JOIN ec_kpi_targets kt ON kt.ec_id = u.id 
+        AND kt.target_month >= ? AND kt.target_month < ?
       LEFT JOIN (
         SELECT ec_id, SUM(amount) as revenue
         FROM revenues
-        WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND type = 'tuition'
+        WHERE created_at >= ? AND created_at < ? AND type = 'tuition'
         GROUP BY ec_id
       ) rev_stats ON rev_stats.ec_id = u.id
       LEFT JOIN (
@@ -388,12 +440,12 @@ class SaleReportModel extends BaseModel {
           SUM(CASE WHEN l.status = 'converted' THEN 1 ELSE 0 END) as leads_converted
         FROM leads l
         LEFT JOIN students s ON l.converted_student_id = s.id
-        WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ?
+        WHERE l.created_at >= ? AND l.created_at < ?
         GROUP BY l.sale_id
       ) lead_stats ON lead_stats.sale_id = u.id
       WHERE r.name IN ('ec', 'EC', 'sale', 'SALE') AND COALESCE(rev_stats.revenue, 0) > 0
     `;
-    const params = [month, month, month];
+    const params = [monthStart, monthEnd, monthStart, monthEnd, monthStart, monthEnd];
 
     if (branchId) {
       sql += ' AND ub.branch_id = ?';
@@ -409,6 +461,8 @@ class SaleReportModel extends BaseModel {
 
   // Bảng xếp hạng theo KPI %
   async getRankingByKpi(month, branchId = null, limit = 10) {
+    const { monthStart, monthEnd } = this.getMonthRange(month);
+
     let sql = `
       SELECT 
         u.id as ec_id,
@@ -426,22 +480,23 @@ class SaleReportModel extends BaseModel {
       JOIN roles r ON u.role_id = r.id
       LEFT JOIN user_branches ub ON ub.user_id = u.id
       LEFT JOIN branches b ON ub.branch_id = b.id
-      INNER JOIN ec_kpi_targets kt ON kt.ec_id = u.id AND DATE_FORMAT(kt.target_month, '%Y-%m') = ?
+      INNER JOIN ec_kpi_targets kt ON kt.ec_id = u.id 
+        AND kt.target_month >= ? AND kt.target_month < ?
       LEFT JOIN (
         SELECT ec_id, SUM(amount) as revenue
         FROM revenues
-        WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND type = 'tuition'
+        WHERE created_at >= ? AND created_at < ? AND type = 'tuition'
         GROUP BY ec_id
       ) rev_stats ON rev_stats.ec_id = u.id
       LEFT JOIN (
         SELECT sale_id, COUNT(*) as checkin_count
         FROM leads
-        WHERE DATE_FORMAT(created_at, '%Y-%m') = ? AND status IN ('attended', 'trial', 'converted')
+        WHERE created_at >= ? AND created_at < ? AND status IN ('attended', 'trial', 'converted')
         GROUP BY sale_id
       ) lead_stats ON lead_stats.sale_id = u.id
       WHERE r.name IN ('ec', 'EC', 'sale', 'SALE') AND kt.target_revenue > 0
     `;
-    const params = [month, month, month];
+    const params = [monthStart, monthEnd, monthStart, monthEnd, monthStart, monthEnd];
 
     if (branchId) {
       sql += ' AND ub.branch_id = ?';
@@ -455,9 +510,39 @@ class SaleReportModel extends BaseModel {
     return rows;
   }
 
-  // Lấy danh sách doanh thu dự kiến (còn nợ)
-  async getExpectedRevenueList(month, branchId = null) {
-    let sql = `
+  // Lấy danh sách doanh thu dự kiến (còn nợ) với phân trang
+  async getExpectedRevenueList(month, branchId = null, page = 1, limit = 50) {
+    const { monthStart, monthEnd } = this.getMonthRange(month);
+
+    const baseFromWhere = `
+      FROM students s
+      JOIN leads l ON l.converted_student_id = s.id
+      LEFT JOIN users u ON l.sale_id = u.id
+      LEFT JOIN branches b ON s.branch_id = b.id
+      WHERE l.created_at >= ? AND l.created_at < ?
+        AND s.fee_total > s.actual_revenue
+        ${branchId ? 'AND s.branch_id = ?' : ''}
+    `;
+
+    const countParams = [monthStart, monthEnd];
+    if (branchId) countParams.push(branchId);
+
+    const [countRows] = await this.db.query(
+      `SELECT COUNT(*) as total ${baseFromWhere}`,
+      countParams
+    );
+
+    const total = countRows[0]?.total || 0;
+    const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const offset = (safePage - 1) * safeLimit;
+
+    const listParams = [monthStart, monthEnd];
+    if (branchId) listParams.push(branchId);
+    listParams.push(safeLimit, offset);
+
+    const [rows] = await this.db.query(
+      `
       SELECT 
         s.id as student_id,
         s.student_code,
@@ -468,29 +553,59 @@ class SaleReportModel extends BaseModel {
         (s.fee_total - s.actual_revenue) as remaining,
         s.fee_status,
         u.full_name as ec_name,
-        b.name as branch_name
+        b.name as branch_name,
+        b.code as branch_code
+      ${baseFromWhere}
+      ORDER BY (s.fee_total - s.actual_revenue) DESC
+      LIMIT ? OFFSET ?
+      `,
+      listParams
+    );
+
+    return {
+      items: rows,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: total ? Math.ceil(total / safeLimit) : 1,
+      },
+    };
+  }
+
+  // Lấy danh sách đã thanh toán đủ với phân trang
+  async getFullPaidList(month, branchId = null, page = 1, limit = 50) {
+    const { monthStart, monthEnd } = this.getMonthRange(month);
+
+    const baseFromWhere = `
       FROM students s
       JOIN leads l ON l.converted_student_id = s.id
       LEFT JOIN users u ON l.sale_id = u.id
       LEFT JOIN branches b ON s.branch_id = b.id
-      WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ?
-        AND s.fee_total > s.actual_revenue
+      WHERE l.created_at >= ? AND l.created_at < ?
+        AND s.actual_revenue >= s.fee_total
+        ${branchId ? 'AND s.branch_id = ?' : ''}
     `;
-    const params = [month];
 
-    if (branchId) {
-      sql += ' AND s.branch_id = ?';
-      params.push(branchId);
-    }
+    const countParams = [monthStart, monthEnd];
+    if (branchId) countParams.push(branchId);
 
-    sql += ' ORDER BY (s.fee_total - s.actual_revenue) DESC';
-    const [rows] = await this.db.query(sql, params);
-    return rows;
-  }
+    const [countRows] = await this.db.query(
+      `SELECT COUNT(*) as total ${baseFromWhere}`,
+      countParams
+    );
 
-  // Lấy danh sách đã thanh toán đủ
-  async getFullPaidList(month, branchId = null) {
-    let sql = `
+    const total = countRows[0]?.total || 0;
+    const safeLimit = Math.max(1, Math.min(parseInt(limit, 10) || 50, 200));
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    const offset = (safePage - 1) * safeLimit;
+
+    const listParams = [monthStart, monthEnd];
+    if (branchId) listParams.push(branchId);
+    listParams.push(safeLimit, offset);
+
+    const [rows] = await this.db.query(
+      `
       SELECT 
         s.id as student_id,
         s.student_code,
@@ -500,24 +615,24 @@ class SaleReportModel extends BaseModel {
         s.actual_revenue,
         s.fee_status,
         u.full_name as ec_name,
-        b.name as branch_name
-      FROM students s
-      JOIN leads l ON l.converted_student_id = s.id
-      LEFT JOIN users u ON l.sale_id = u.id
-      LEFT JOIN branches b ON s.branch_id = b.id
-      WHERE DATE_FORMAT(l.created_at, '%Y-%m') = ?
-        AND s.actual_revenue >= s.fee_total
-    `;
-    const params = [month];
+        b.name as branch_name,
+        b.code as branch_code
+      ${baseFromWhere}
+      ORDER BY s.actual_revenue DESC
+      LIMIT ? OFFSET ?
+      `,
+      listParams
+    );
 
-    if (branchId) {
-      sql += ' AND s.branch_id = ?';
-      params.push(branchId);
-    }
-
-    sql += ' ORDER BY s.actual_revenue DESC';
-    const [rows] = await this.db.query(sql, params);
-    return rows;
+    return {
+      items: rows,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: total ? Math.ceil(total / safeLimit) : 1,
+      },
+    };
   }
 
   // Tính toán và cập nhật báo cáo

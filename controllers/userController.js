@@ -43,14 +43,21 @@ export const create = async (req, res, next) => {
   try {
     const { username, email, password, fullName, full_name, phone, roleId, role_id, branch_ids, manager_id, sendEmail } = req.body;
     const finalFullName = fullName || full_name;
-    const finalRoleId = roleId || role_id;
+    // Ép kiểu số cho roleId (frontend gửi string hoặc number)
+    const finalRoleId = roleId ? parseInt(roleId) : (role_id ? parseInt(role_id) : null);
 
     if (!username || !password || !finalFullName || !finalRoleId) {
       return res.status(400).json({ success: false, message: 'Thiếu thông tin bắt buộc' });
     }
 
     const user = await UserModel.createUser({
-      username, email, password, full_name: finalFullName, phone, role_id: finalRoleId, manager_id
+      username,
+      email: email || null,
+      password,
+      full_name: finalFullName,
+      phone: phone || null,
+      role_id: finalRoleId,
+      manager_id: manager_id ? parseInt(manager_id) : null
     });
 
     // Gán branches cho user
@@ -107,11 +114,15 @@ export const update = async (req, res, next) => {
     const { fullName, full_name, email, phone, roleId, role_id, isActive, is_active, branch_ids, manager_id } = req.body;
     const data = {};
     if (fullName || full_name) data.full_name = fullName || full_name;
-    if (email !== undefined) data.email = email;
-    if (phone !== undefined) data.phone = phone;
-    if (roleId || role_id) data.role_id = roleId || role_id;
-    if (isActive !== undefined || is_active !== undefined) data.is_active = isActive ?? is_active;
-    if (manager_id !== undefined) data.manager_id = manager_id || null;
+    if (email !== undefined) data.email = email || null;
+    if (phone !== undefined) data.phone = phone || null;
+    // Ép kiểu số
+    if (roleId || role_id) data.role_id = parseInt(roleId || role_id);
+    if (isActive !== undefined || is_active !== undefined) {
+      const val = isActive ?? is_active;
+      data.is_active = val === true || val === 1 || val === '1' ? 1 : 0;
+    }
+    if (manager_id !== undefined) data.manager_id = manager_id ? parseInt(manager_id) : null;
 
     await UserModel.update(req.params.id, data);
 

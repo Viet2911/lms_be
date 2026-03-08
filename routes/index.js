@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authenticate, authorize, authorizeRole } from '../middleware/auth.js';
 import { upload } from '../config/cloudinary.js';
+import { validators, handleValidationErrors } from '../middleware/validate.js';
 
 // Controllers
 import * as auth from '../controllers/authController.js';
@@ -22,10 +23,10 @@ import * as dashboard from '../controllers/dashboardController.js';
 const router = Router();
 
 // AUTH
-router.post('/auth/login', auth.login);
+router.post('/auth/login', validators.login, handleValidationErrors, auth.login);
 router.get('/auth/me', authenticate, auth.me);
-router.put('/auth/password', authenticate, auth.changePassword);
-router.put('/auth/profile', authenticate, auth.updateProfile);
+router.put('/auth/password', authenticate, validators.changePassword, handleValidationErrors, auth.changePassword);
+router.put('/auth/profile', authenticate, validators.updateProfile, handleValidationErrors, auth.updateProfile);
 
 // BRANCHES
 router.get('/branches', authenticate, branch.getAll);
@@ -43,8 +44,8 @@ router.get('/users/roles', authenticate, user.getRoles);
 router.get('/users/managers', authenticate, user.getManagers);
 router.get('/users/by-role/:role', authenticate, user.getByRole);
 router.get('/users/:id', authenticate, authorize('users.view'), user.getById);
-router.post('/users', authenticate, authorize('users.create'), user.create);
-router.put('/users/:id', authenticate, authorize('users.edit'), user.update);
+router.post('/users', authenticate, authorize('users.create'), validators.createUser, handleValidationErrors, user.create);
+router.put('/users/:id', authenticate, authorize('users.edit'), validators.updateUser, handleValidationErrors, user.update);
 router.put('/users/:id/reset-password', authenticate, authorize('users.edit'), user.resetPassword);
 router.delete('/users/:id', authenticate, authorize('users.delete'), user.remove);
 
@@ -52,8 +53,8 @@ router.delete('/users/:id', authenticate, authorize('users.delete'), user.remove
 router.get('/students', authenticate, authorize('students.view'), student.getAll);
 router.get('/students/stats', authenticate, authorize('students.view'), student.getStats);
 router.get('/students/:id', authenticate, authorize('students.view'), student.getById);
-router.post('/students', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.create);
-router.put('/students/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.update);
+router.post('/students', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), validators.createStudent, handleValidationErrors, student.create);
+router.put('/students/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), validators.updateStudent, handleValidationErrors, student.update);
 router.put('/students/:id/status', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.changeStatus);
 router.post('/students/:id/confirm-payment', authenticate, authorizeRole('ACCOUNTANT', 'EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.confirmPayment);
 router.delete('/students/:id', authenticate, authorizeRole('HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.remove);
@@ -79,6 +80,7 @@ router.put('/classes/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU'
 router.delete('/classes/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.remove);
 router.post('/classes/:id/students', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.addStudent);
 router.delete('/classes/:id/students/:studentId', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.removeStudent);
+router.post('/classes/:id/promote', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.promoteClass);
 
 // EXPERIENCE
 const ecRoles = ['EC', 'SALE', 'HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
@@ -112,8 +114,8 @@ router.get('/leads/check-phone', authenticate, authorizeRole(...leadRoles), lead
 router.get('/leads/trial-report', authenticate, authorizeRole(...leadRoles), lead.getTrialReport);
 router.get('/leads/trial-report/export', authenticate, authorizeRole(...leadRoles), lead.exportTrialReport);
 router.get('/leads/:id', authenticate, authorizeRole(...leadRoles), lead.getById);
-router.post('/leads', authenticate, authorizeRole(...leadRoles), lead.create);
-router.put('/leads/:id', authenticate, authorizeRole(...leadRoles), lead.update);
+router.post('/leads', authenticate, authorizeRole(...leadRoles), validators.createLead, handleValidationErrors, lead.create);
+router.put('/leads/:id', authenticate, authorizeRole(...leadRoles), validators.updateLead, handleValidationErrors, lead.update);
 router.delete('/leads/:id', authenticate, authorizeRole('HOEC', 'OM', 'ADMIN'), lead.remove); // Chỉ manager được xóa
 router.post('/leads/:id/attended', authenticate, authorizeRole(...leadRoles), lead.markAttended);
 router.post('/leads/:id/no-show', authenticate, authorizeRole(...leadRoles), lead.markNoShow);
@@ -327,5 +329,18 @@ const trialCheckinRoles = ['EC', 'TEACHER', 'SALE', 'HOEC', 'OM', 'CM', 'QLCS', 
 router.get('/trial/today', authenticate, authorizeRole(...trialCheckinRoles), trial.getTodayTrials);
 router.get('/trial/checkins', authenticate, authorizeRole(...trialCheckinRoles), trial.getTrialCheckins);
 router.post('/trial/:id/checkin', authenticate, authorizeRole(...trialCheckinRoles), trial.checkinTrial);
+
+
+import { getAttendance, saveAttendance } from '../controllers/sessionController.js';
+
+// Sessions
+router.get('/sessions/:id/attendance', authenticate, getAttendance);
+router.post('/sessions/:id/attendance', authenticate, saveAttendance);
+
+
+
+
+
+
 
 export default router;

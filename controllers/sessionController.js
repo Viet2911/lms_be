@@ -183,3 +183,86 @@ export const getRescheduleHistory = async (req, res, next) => {
     res.json({ success: true, data: history });
   } catch (error) { next(error); }
 };
+
+// GET /api/sessions/:id/attendance
+export const getAttendance = async (req, res) => {
+  try {
+    const sessionId = req.params.id;
+
+    const [sessionRows] = await db.query(`
+      SELECT s.*, c.class_name, c.class_code, u.full_name as teacher_name
+      FROM sessions s
+      JOIN classes c ON s.class_id = c.id
+      LEFT JOIN users u ON c.teacher_id = u.id
+      WHERE s.id = ?
+    `, [sessionId]);
+
+    if (!sessionRows.length) {
+      return res.status(404).json({ success: false, message: 'Khong tim thay buoi hoc' });
+    }
+
+    const session = sessionRows[0];
+
+    const [students] = await db.query(`
+      SELECT 
+        st.id as student_id, st.student_code, st.full_name, st.parent_phone as phone,
+        st.remaining_sessions, COALESCE(a.is_present, 0) as is_present, a.note
+      FROM class_students cs
+      JOIN students st ON cs.student_id = st.id
+      LEFT JOIN attendance_logs a ON a.session_id = ? AND a.student_id = st.id
+      WHERE cs.class_id = ? AND cs.status = 'active'
+      ORDER BY st.full_name
+    `, [sessionId, session.class_id]);
+
+    res.json({ success: true, data: { session, students } });
+
+  } catch (error) {
+    console.error('Get attendance error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// POST /api/sessions/:id/attendance
+export const saveAttendance = async (req, res) => {
+  const connection = await db.getConnection();
+
+  try {
+    const sessionId = req.params.id;
+    const { attendances } = req.body;
+
+    if (!Array.isArray(attendances)) {
+      return res.status(400).json({ success: false, message: 'Invalid data format' });
+    }
+
+    await connection.beginTransaction();
+
+    await connection.query(`DELETE FROM attendance_logs WHERE session_id = ?`, [sessionId]);
+
+    for (const att of attendances) {
+      await connection.query(`
+        INSERT INTO attendance_logs (session_id, student_id, is_present, note, checked_by, checked_at)
+        VALUES (?, ?, ?, ?, ?, NOW())
+      `, [sessionId, att.student_id, att.is_present ? 1 : 0, att.note || null, req.user.id]);
+
+      if (att.is_present) {
+        await connection.query(`
+          UPDATE students SET remaining_sessions = GREATEST(0, remaining_sessions - 1) WHERE id = ?
+        `, [att.student_id]);
+      }
+    }
+
+    await connection.query(`UPDATE sessions SET status = 'completed', attendance_submitted = 1 WHERE id = ?`, [sessionId]);
+
+    await connection.commit();
+    res.json({ success: true, message: 'Luu diem danh thanh cong' });
+
+  } catch (error) {
+    await connection.rollback();
+    console.error('Save attendance error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    connection.release();
+  }
+};
+

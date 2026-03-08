@@ -137,6 +137,20 @@ class AttendanceModel extends BaseModel {
       }
 
       await conn.query('UPDATE sessions SET attendance_submitted = 1 WHERE id = ?', [sessionId]);
+
+      // Kiểm tra nếu tất cả buổi của lớp đã điểm danh xong → đổi lớp thành "completed"
+      const [[{ total, submitted }]] = await conn.query(
+        `SELECT COUNT(*) as total, SUM(attendance_submitted = 1) as submitted
+         FROM sessions WHERE class_id = ?`,
+        [session.class_id]
+      );
+      if (total > 0 && Number(submitted) === Number(total)) {
+        await conn.query(
+          `UPDATE classes SET status = 'completed' WHERE id = ? AND status = 'active'`,
+          [session.class_id]
+        );
+      }
+
       await conn.commit();
 
       return { success: true, warnings };

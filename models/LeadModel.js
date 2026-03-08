@@ -5,22 +5,12 @@ class LeadModel extends BaseModel {
     super('leads');
   }
 
-  // Tạo mã lead tự động
+  // Tạo mã lead tự động (không phụ thuộc vào truy vấn DB)
   async generateCode(branchCode) {
     const prefix = branchCode || 'LD';
-    const [rows] = await this.db.query(
-      `SELECT code FROM leads WHERE code LIKE ? ORDER BY id DESC LIMIT 1`,
-      [`${prefix}-%`]
-    );
-
-    let nextNum = 1;
-    if (rows.length > 0) {
-      const lastCode = rows[0].code;
-      const match = lastCode.match(/(\d+)$/);
-      if (match) nextNum = parseInt(match[1]) + 1;
-    }
-
-    return `${prefix}-${String(nextNum).padStart(5, '0')}`;
+    const timePart = Date.now().toString(36).toUpperCase();
+    const randomPart = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `${prefix}-${timePart}${randomPart}`;
   }
 
   // Lấy tất cả leads với filter
