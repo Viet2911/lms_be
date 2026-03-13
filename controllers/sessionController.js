@@ -217,7 +217,6 @@ export const getAttendance = async (req, res) => {
     res.json({ success: true, data: { session, students } });
 
   } catch (error) {
-    console.error('Get attendance error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -259,7 +258,6 @@ export const saveAttendance = async (req, res) => {
 
   } catch (error) {
     await connection.rollback();
-    console.error('Save attendance error:', error);
     res.status(500).json({ success: false, message: error.message });
   } finally {
     connection.release();

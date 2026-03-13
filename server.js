@@ -47,7 +47,6 @@ app.use(cors({
       return callback(null, true);
     }
 
-    console.log('CORS blocked origin:', origin);
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true
@@ -79,7 +78,4 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`🚀 API Server: http://localhost:${PORT}`);
-  console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 Allowed Origins: ${allowedOrigins.join(', ')}`);
 });

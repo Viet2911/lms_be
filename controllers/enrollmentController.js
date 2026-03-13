@@ -93,7 +93,6 @@ export const generateEnrollmentForm = async (req, res, next) => {
 
         res.send(buffer);
     } catch (error) {
-        console.error('Generate enrollment form error:', error);
         next(error);
     }
 };

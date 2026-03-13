@@ -1,5 +1,6 @@
 import db from '../config/database.js';
 import { getBranchFilter } from '../utils/branchHelper.js';
+import SaleReportModel from '../models/SaleReportModel.js';
 
 // Dashboard ADMIN - Toàn quyền xem
 export const getAdmin = async (req, res, next) => {
@@ -82,13 +83,17 @@ export const getAdmin = async (req, res, next) => {
 export const getOwner = async (req, res, next) => {
   try {
     const currentMonth = new Date().toISOString().slice(0, 7);
+    const branchId = getBranchFilter(req);
+    const bf = branchId ? ' AND branch_id = ?' : '';
+    const p = branchId ? [branchId] : [];
 
     const [[[students]], [[classes]], [[leads]]] = await Promise.all([
       db.query(`SELECT COUNT(*) as total, SUM(status='active') as active,
-        SUM(fee_status='expiring_soon') as expiring_soon, SUM(fee_status='expired') as expired FROM students`),
-      db.query(`SELECT COUNT(*) as total, SUM(status='active') as active FROM classes`),
+        SUM(fee_status='expiring_soon') as expiring_soon, SUM(fee_status='expired') as expired
+        FROM students WHERE 1=1${bf}`, p),
+      db.query(`SELECT COUNT(*) as total, SUM(status='active') as active FROM classes WHERE 1=1${bf}`, p),
       db.query(`SELECT COUNT(*) as total, SUM(status='converted') as converted,
-        SUM(MONTH(created_at)=MONTH(CURDATE())) as this_month FROM leads`),
+        SUM(MONTH(created_at)=MONTH(CURDATE())) as this_month FROM leads WHERE 1=1${bf}`, p),
     ]);
 
     let saleStats = { total_checkin: 0, total_revenue: 0, total_deposit: 0, total_expected: 0 };
@@ -97,20 +102,24 @@ export const getOwner = async (req, res, next) => {
       const [[[stats]], [topRows], [branchRows], [expRows]] = await Promise.all([
         db.query(`SELECT COALESCE(SUM(checkin_count),0) as total_checkin, COALESCE(SUM(revenue),0) as total_revenue,
           COALESCE(SUM(deposit_total),0) as total_deposit, COALESCE(SUM(expected_revenue),0) as total_expected
-          FROM sale_reports WHERE DATE_FORMAT(report_month,'%Y-%m')=?`, [currentMonth]),
+          FROM sale_reports WHERE DATE_FORMAT(report_month,'%Y-%m')=?${branchId ? ' AND branch_id=?' : ''}`,
+          branchId ? [currentMonth, branchId] : [currentMonth]),
         db.query(`SELECT sr.ec_id, u.full_name as ec_name, b.code as branch_code,
           sr.revenue, sr.kpi_percent, sr.checkin_count, sr.leads_converted
           FROM sale_reports sr JOIN users u ON sr.ec_id=u.id
           LEFT JOIN user_branches ub ON u.id=ub.user_id LEFT JOIN branches b ON ub.branch_id=b.id
-          WHERE DATE_FORMAT(sr.report_month,'%Y-%m')=? ORDER BY sr.revenue DESC LIMIT 10`, [currentMonth]),
+          WHERE DATE_FORMAT(sr.report_month,'%Y-%m')=?${branchId ? ' AND sr.branch_id=?' : ''}
+          ORDER BY sr.revenue DESC LIMIT 10`,
+          branchId ? [currentMonth, branchId] : [currentMonth]),
         db.query(`SELECT b.id, b.name, b.code, COALESCE(SUM(sr.revenue),0) as revenue,
           COALESCE(SUM(sr.deposit_total),0) as deposit, COALESCE(SUM(sr.expected_revenue),0) as expected
           FROM branches b LEFT JOIN sale_reports sr ON b.id=sr.branch_id AND DATE_FORMAT(sr.report_month,'%Y-%m')=?
-          WHERE b.is_active=1 GROUP BY b.id ORDER BY revenue DESC`, [currentMonth]),
+          WHERE b.is_active=1${branchId ? ' AND b.id=?' : ''} GROUP BY b.id ORDER BY revenue DESC`,
+          branchId ? [currentMonth, branchId] : [currentMonth]),
         db.query(`SELECT s.id, s.full_name, s.student_code, s.remaining_sessions, s.fee_status, b.code as branch_code
           FROM students s JOIN branches b ON s.branch_id=b.id
-          WHERE s.fee_status IN ('expiring_soon','expired') AND s.status='active'
-          ORDER BY s.remaining_sessions ASC LIMIT 15`),
+          WHERE s.fee_status IN ('expiring_soon','expired') AND s.status='active'${branchId ? ' AND s.branch_id=?' : ''}
+          ORDER BY s.remaining_sessions ASC LIMIT 15`, p),
       ]);
       if (stats) saleStats = stats;
       topEcs = topRows; revenueByBranch = branchRows; expiringStudents = expRows;
@@ -276,70 +285,18 @@ export const getCM = async (req, res, next) => {
 export const getSale = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const monthStart = `${currentMonth}-01`;
+    // Cho phép truyền month để xem KPI theo tháng bất kỳ
+    const month = req.query.month || new Date().toISOString().slice(0, 7);
+    const monthStart = `${month}-01`;
     const nextMonthStart = new Date(new Date(monthStart).setMonth(new Date(monthStart).getMonth() + 1)).toISOString().slice(0, 10);
 
-    // My stats - tất cả leads của EC
-    const [[myStats]] = await db.query(`
-      SELECT 
-        COUNT(*) as total_leads,
-        SUM(status = 'scheduled') as scheduled,
-        SUM(status = 'attended') as attended,
-        SUM(status = 'trial') as trial,
-        SUM(status = 'converted') as converted,
-        SUM(status = 'waiting') as waiting,
-        SUM(scheduled_date = CURDATE()) as today
-      FROM leads WHERE sale_id = ?
-    `, [userId]);
+    // Dùng SaleReportModel - cùng logic với báo cáo sale (doanh thu từ students, checkin theo tháng)
+    const myReport = await SaleReportModel.getByEcAndMonth(userId, month);
+    const myKpi = myReport ? { target_revenue: myReport.kpi_target } : null;
 
-    // Tính doanh thu từ TẤT CẢ leads converted của EC (không chỉ trong tháng)
-    // Doanh thu = actual_revenue của các lead đã converted
-    const [[revenueStats]] = await db.query(`
-      SELECT 
-        COUNT(*) as leads_converted,
-        COALESCE(SUM(actual_revenue), 0) as revenue,
-        COALESCE(SUM(deposit_amount), 0) as deposit_total,
-        COALESCE(SUM(fee_total - actual_revenue), 0) as expected_revenue
-      FROM leads 
-      WHERE sale_id = ? 
-        AND status = 'converted'
-    `, [userId]);
-
-    // Đếm leads đang xử lý
-    const [[pendingStats]] = await db.query(`
-      SELECT COUNT(*) as checkin_count
-      FROM leads 
-      WHERE sale_id = ? 
-        AND status IN ('scheduled', 'attended', 'trial', 'waiting')
-    `, [userId]);
-
-    // My KPI target
-    let myKpi = null;
-    try {
-      const [[kpi]] = await db.query(`
-        SELECT * FROM ec_kpi_targets 
-        WHERE ec_id = ? AND DATE_FORMAT(target_month, '%Y-%m') = ?
-      `, [userId, currentMonth]);
-      myKpi = kpi;
-    } catch (e) { }
-
-    // Build myReport from calculated stats
-    const revenue = revenueStats?.revenue || 0;
-    const myReport = {
-      revenue: revenue,
-      deposit_total: revenueStats?.deposit_total || 0,
-      expected_revenue: revenueStats?.expected_revenue || 0, // Tiền còn thiếu từ leads converted
-      checkin_count: pendingStats?.checkin_count || 0,
-      leads_converted: revenueStats?.leads_converted || 0,
-      kpi_percent: myKpi?.target_revenue > 0
-        ? Math.round(revenue / myKpi.target_revenue * 100)
-        : 0
-    };
-
-    // Today leads - CHỈ leads của EC này
+    // Leads hôm nay của EC (luôn luôn là hôm nay, bất kể tháng đang xem)
     const [todayLeads] = await db.query(`
-      SELECT l.id, l.code, l.student_name, l.customer_name, l.customer_phone, 
+      SELECT l.id, l.code, l.student_name, l.customer_name, l.customer_phone,
              l.scheduled_time, l.status, l.actual_revenue, l.fee_total,
              s.name as subject_name
       FROM leads l
@@ -348,50 +305,62 @@ export const getSale = async (req, res, next) => {
       ORDER BY l.scheduled_time
     `, [userId]);
 
-    // Converted leads trong tháng - CHỈ leads của EC này
+    // Leads đã converted trong tháng đang xem (dùng created_at như SaleReportModel)
     const [convertedLeads] = await db.query(`
-      SELECT l.id, l.code, l.student_name, l.customer_phone, 
-             l.actual_revenue, l.deposit_amount, l.fee_total,
+      SELECT l.id, l.code, l.student_name, l.customer_phone,
+             COALESCE(s.actual_revenue, l.actual_revenue, 0) as actual_revenue,
+             COALESCE(s.deposit_amount, l.deposit_amount, 0) as deposit_amount,
+             COALESCE(s.fee_total, l.fee_total, 0) as fee_total,
              DATE_FORMAT(l.converted_at, '%d/%m') as converted_date
       FROM leads l
-      WHERE l.sale_id = ? 
+      LEFT JOIN students s ON l.converted_student_id = s.id
+      WHERE l.sale_id = ?
         AND l.status = 'converted'
-        AND l.converted_at >= ? AND l.converted_at < ?
+        AND l.created_at >= ? AND l.created_at < ?
       ORDER BY l.converted_at DESC LIMIT 10
     `, [userId, monthStart, nextMonthStart]);
 
-    // Waiting leads
-    const [waitingLeads] = await db.query(`
-      SELECT l.id, l.code, l.student_name, l.customer_phone, l.trial_sessions_attended
-      FROM leads l
-      WHERE l.sale_id = ? AND l.status = 'waiting'
-      ORDER BY l.updated_at DESC LIMIT 10
-    `, [userId]);
-
-    // My ranking
-    let myRanking = { rank_branch: 0, rank_all: 0 };
+    // Xếp hạng trong tháng (dùng SaleReportModel ranking)
+    let myRanking = { rank_all: '-', rank_branch: '-' };
     try {
-      const [[ranking]] = await db.query(`
-        SELECT 
-          (SELECT COUNT(DISTINCT l2.sale_id) + 1 
-           FROM leads l2 
-           WHERE l2.status = 'converted'
-             AND l2.converted_at >= ? AND l2.converted_at < ?
-             AND COALESCE((SELECT SUM(actual_revenue) FROM leads 
-                          WHERE sale_id = l2.sale_id AND status = 'converted'
-                          AND converted_at >= ? AND converted_at < ?), 0) > ?
-          ) as rank_all
-        FROM dual
-      `, [monthStart, nextMonthStart, monthStart, nextMonthStart, revenue]);
-      if (ranking) myRanking = ranking;
-    } catch (e) { console.error('Ranking error:', e); }
+      const [rankAll] = await SaleReportModel.db.query(`
+        SELECT ec_id, revenue FROM (
+          SELECT l.sale_id AS ec_id,
+                 COALESCE(SUM(s.actual_revenue), 0) AS revenue
+          FROM leads l
+          JOIN students s ON l.converted_student_id = s.id
+          WHERE l.created_at >= ? AND l.created_at < ? AND l.status = 'converted'
+          GROUP BY l.sale_id
+        ) t ORDER BY revenue DESC
+      `, [monthStart, nextMonthStart]);
+
+      const myRevenue = parseFloat(myReport?.revenue || 0);
+      const rankAllIdx = rankAll.findIndex(r => r.ec_id === userId);
+      myRanking.rank_all = rankAllIdx >= 0 ? rankAllIdx + 1 : (myRevenue > 0 ? rankAll.length + 1 : '-');
+
+      // Xếp hạng trong cơ sở
+      if (myReport?.branch_id) {
+        const [rankBranch] = await SaleReportModel.db.query(`
+          SELECT l.sale_id AS ec_id,
+                 COALESCE(SUM(s.actual_revenue), 0) AS revenue
+          FROM leads l
+          JOIN students s ON l.converted_student_id = s.id
+          JOIN user_branches ub ON ub.user_id = l.sale_id AND ub.branch_id = ?
+          WHERE l.created_at >= ? AND l.created_at < ? AND l.status = 'converted'
+          GROUP BY l.sale_id
+          ORDER BY revenue DESC
+        `, [myReport.branch_id, monthStart, nextMonthStart]);
+        const rankBrIdx = rankBranch.findIndex(r => r.ec_id === userId);
+        myRanking.rank_branch = rankBrIdx >= 0 ? rankBrIdx + 1 : (myRevenue > 0 ? rankBranch.length + 1 : '-');
+      }
+    } catch (e) { }
 
     res.json({
       success: true,
       data: {
-        myStats, myReport, myKpi, myRanking,
-        todayLeads, convertedLeads, waitingLeads,
-        currentMonth
+        myReport, myKpi, myRanking,
+        todayLeads, convertedLeads,
+        currentMonth: month
       }
     });
   } catch (error) { next(error); }
@@ -530,7 +499,6 @@ export const getDashboardAdmin = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Dashboard admin error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -568,7 +536,6 @@ export const getDashboardEC = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Dashboard EC error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -617,7 +584,6 @@ export const getDashboardTeacher = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Dashboard teacher error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

@@ -42,7 +42,6 @@ if (isCloudinaryConfigured) {
   upload = multer({ storage });
   uploadImage = multer({ storage: imageStorage });
 
-  console.log('✅ Cloudinary configured for file uploads');
 } else {
   // Fallback to local storage
   const uploadDir = path.join(process.cwd(), 'uploads');
@@ -87,7 +86,6 @@ if (isCloudinaryConfigured) {
     limits: { fileSize: 5 * 1024 * 1024 } // 5MB
   });
 
-  console.log('⚠️ Cloudinary not configured, using local storage at:', uploadDir);
 }
 
 export { upload, uploadImage };

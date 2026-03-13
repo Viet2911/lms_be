@@ -24,7 +24,7 @@ class RenewalModel extends BaseModel {
 
     let branchFilter = '';
     if (branchId) {
-      branchFilter = 'AND cs.branch_id = ?';
+      branchFilter = 'AND s.branch_id = ?';
     }
 
     let classFilter = '';
@@ -39,11 +39,11 @@ class RenewalModel extends BaseModel {
       LEFT JOIN classes c ON c.id = cs.class_id
       LEFT JOIN subjects subj ON subj.id = c.subject_id
       LEFT JOIN users cm ON cm.id = c.cm_id
-      LEFT JOIN branches b ON b.id = cs.branch_id
+      LEFT JOIN branches b ON b.id = s.branch_id
       LEFT JOIN packages p ON p.id = s.package_id
       LEFT JOIN (
         SELECT student_id, COUNT(*) as completed_sessions
-        FROM session_attendance
+        FROM attendance
         WHERE status IN ('present', 'late')
         GROUP BY student_id
       ) att ON att.student_id = s.id
@@ -51,9 +51,10 @@ class RenewalModel extends BaseModel {
         AND (
           s.fee_end_date BETWEEN ? AND ?
           OR s.fee_end_date < ?
+          OR s.remaining_sessions <= 0
           OR EXISTS (
-            SELECT 1 FROM student_renewals sr 
-            WHERE sr.student_id = s.id 
+            SELECT 1 FROM student_renewals sr
+            WHERE sr.student_id = s.id
               AND sr.created_at BETWEEN ? AND ?
           )
         )
@@ -87,13 +88,13 @@ class RenewalModel extends BaseModel {
       FROM (
         SELECT 
           s.id,
-          CASE 
+          CASE
             WHEN EXISTS (
-              SELECT 1 FROM student_renewals sr 
-              WHERE sr.student_id = s.id 
+              SELECT 1 FROM student_renewals sr
+              WHERE sr.student_id = s.id
                 AND sr.created_at BETWEEN ? AND ?
             ) THEN 'renewed'
-            WHEN s.fee_end_date < ? THEN 'expired'
+            WHEN s.fee_end_date < ? OR s.remaining_sessions <= 0 THEN 'expired'
             WHEN s.fee_end_date <= ? THEN 'expiring'
             ELSE 'active'
           END as status
@@ -123,35 +124,37 @@ class RenewalModel extends BaseModel {
     const offset = (safePage - 1) * safeLimit;
 
     const listSql = `
-      SELECT 
+      SELECT
         s.id,
         s.student_code,
         s.full_name,
         s.parent_phone,
         s.fee_end_date,
         DATEDIFF(s.fee_end_date, CURDATE()) as days_remaining,
-        c.id as class_id,
-        c.class_name,
-        c.subject_id,
-        subj.name as subject_name,
-        cm.full_name as cm_name,
-        p.name as package_name,
-        p.sessions as total_sessions,
+        MIN(c.id) as class_id,
+        MIN(c.class_name) as class_name,
+        MIN(c.subject_id) as subject_id,
+        MIN(subj.name) as subject_name,
+        MIN(cm.full_name) as cm_name,
+        MIN(p.name) as package_name,
+        MIN(p.sessions_count) as total_sessions,
+        s.remaining_sessions,
         COALESCE(att.completed_sessions, 0) as completed_sessions,
         b.code as branch_code,
         b.name as branch_name,
-        CASE 
+        CASE
           WHEN EXISTS (
-            SELECT 1 FROM student_renewals sr 
-            WHERE sr.student_id = s.id 
+            SELECT 1 FROM student_renewals sr
+            WHERE sr.student_id = s.id
               AND sr.created_at BETWEEN ? AND ?
           ) THEN 'renewed'
-          WHEN s.fee_end_date < ? THEN 'expired'
+          WHEN s.fee_end_date < ? OR s.remaining_sessions <= 0 THEN 'expired'
           WHEN s.fee_end_date <= ? THEN 'expiring'
           ELSE 'active'
         END as status
       ${baseFromWhere}
-      GROUP BY s.id
+      GROUP BY s.id, s.student_code, s.full_name, s.parent_phone, s.fee_end_date,
+               s.remaining_sessions, att.completed_sessions, b.code, b.name
       ORDER BY 
         CASE 
           WHEN s.fee_end_date < CURDATE() THEN 1
@@ -264,7 +267,7 @@ class RenewalModel extends BaseModel {
           discount_amount = COALESCE(discount_amount, 0) + ?,
           paid_amount = COALESCE(paid_amount, 0) + ?,
           scholarship_months = COALESCE(scholarship_months, 0) + ?,
-          sessions_remaining = COALESCE(sessions_remaining, 0) + ?,
+          remaining_sessions = COALESCE(remaining_sessions, 0) + ?,
           fee_status = 'active',
           updated_at = NOW()
         WHERE id = ?

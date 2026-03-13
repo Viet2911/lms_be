@@ -104,7 +104,7 @@ export const create = async (req, res, next) => {
       scheduled_time: scheduledTime,
       sale_name: req.user.full_name,
       notes: note
-    }).catch(err => console.error('[Telegram] Error:', err));
+    });
 
     res.status(201).json({ success: true, message: 'Tạo lịch trải nghiệm thành công', data: exp });
   } catch (error) { next(error); }
@@ -241,7 +241,6 @@ export const convertToStudent = async (req, res, next) => {
         `⏰ CM vui lòng xếp lớp!`
       );
     } catch (e) {
-      console.error('Telegram error:', e);
     }
 
     res.json({

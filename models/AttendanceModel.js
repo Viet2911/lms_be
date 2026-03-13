@@ -1,4 +1,5 @@
 import BaseModel from './BaseModel.js';
+import StudentModel from './StudentModel.js';
 
 class AttendanceModel extends BaseModel {
   constructor() {
@@ -70,12 +71,13 @@ class AttendanceModel extends BaseModel {
         // on_time -> present, late -> late, excused -> excused, absent -> absent
         const dbStatus = status === 'on_time' ? 'present' : status;
 
-        let existingQuery = 'SELECT id FROM attendance WHERE session_id = ?';
+        let existingQuery = 'SELECT id, status as old_status FROM attendance WHERE session_id = ?';
         const existingParams = [sessionId];
         if (studentId) { existingQuery += ' AND student_id = ?'; existingParams.push(studentId); }
         else if (trialStudentId) { existingQuery += ' AND trial_student_id = ?'; existingParams.push(trialStudentId); }
 
         const [existing] = await conn.query(existingQuery, existingParams);
+        const oldStatus = existing[0]?.old_status || null;
 
         if (existing.length > 0) {
           await conn.query('UPDATE attendance SET status = ?, note = ?, check_in_by = ? WHERE id = ?', [dbStatus, note || '', markedBy, existing[0].id]);
@@ -84,6 +86,21 @@ class AttendanceModel extends BaseModel {
             `INSERT INTO attendance (session_id, student_id, trial_student_id, status, note, check_in_by)
              VALUES (?, ?, ?, ?, ?, ?)`,
             [sessionId, studentId || null, trialStudentId || null, dbStatus, note || '', markedBy]
+          );
+        }
+
+        // Trừ buổi học: chỉ trừ khi học viên có mặt (present/late) VÀ lần trước chưa được tính
+        const wasPresent = oldStatus === 'present' || oldStatus === 'late';
+        const isPresent  = dbStatus  === 'present' || dbStatus  === 'late';
+        if (studentId && isPresent && !wasPresent) {
+          await StudentModel.decrementSession(studentId);
+        } else if (studentId && !isPresent && wasPresent) {
+          // Hoàn trả buổi nếu sửa từ có mặt → vắng
+          await conn.query(
+            `UPDATE students SET remaining_sessions = remaining_sessions + 1, used_sessions = GREATEST(0, used_sessions - 1),
+              fee_status = CASE WHEN remaining_sessions + 1 > 4 THEN 'active' ELSE 'expiring_soon' END
+             WHERE id = ?`,
+            [studentId]
           );
         }
 

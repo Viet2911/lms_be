@@ -3,7 +3,6 @@ import db from '../config/database.js';
 
 // Daily warning check at 8 AM
 cron.schedule('0 8 * * *', async () => {
-  console.log('🔄 Running daily warning check...');
   try {
     // Chèn cảnh báo cho tất cả trial_students đủ điều kiện trong một câu lệnh duy nhất
     await db.query(`
@@ -21,10 +20,7 @@ cron.schedule('0 8 * * *', async () => {
         AND ts.sessions_attended >= 2
     `);
 
-    console.log('✅ Warning check completed');
   } catch (error) {
-    console.error('❌ Warning check error:', error);
   }
 });
 
-console.log('⏰ Cron jobs scheduled');

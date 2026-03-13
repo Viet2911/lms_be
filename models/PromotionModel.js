@@ -337,7 +337,6 @@ class PromotionModel extends BaseModel {
       return true;
     } catch (err) {
       await conn.rollback();
-      console.error('Decrease stock error:', err);
       return false;
     } finally {
       conn.release();

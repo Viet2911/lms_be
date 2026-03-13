@@ -3,12 +3,9 @@ import BranchModel from '../models/BranchModel.js';
 // GET /api/branches
 export const getAll = async (req, res) => {
   try {
-    console.log('GET /branches called');
     const branches = await BranchModel.findAllActive();
-    console.log('Branches found:', branches);
     res.json({ success: true, data: branches });
   } catch (error) {
-    console.error('Branch error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -58,7 +55,6 @@ export const create = async (req, res) => {
     const result = await BranchModel.create(data);
     res.status(201).json({ success: true, data: { id: result.id }, message: 'Tạo cơ sở thành công' });
   } catch (error) {
-    console.error('Branch create error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -84,7 +80,6 @@ export const update = async (req, res) => {
     await BranchModel.update(req.params.id, data);
     res.json({ success: true, message: 'Cập nhật cơ sở thành công' });
   } catch (error) {
-    console.error('Branch update error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };

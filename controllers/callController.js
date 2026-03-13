@@ -42,7 +42,6 @@ export const getToken = async (req, res, next) => {
             }
         });
     } catch (error) {
-        console.error('SignalWire config error:', error);
         res.json({ success: true, data: { configured: false } });
     }
 };
@@ -84,7 +83,6 @@ export const makeCall = async (req, res, next) => {
             }
         });
     } catch (error) {
-        console.error('SignalWire call error:', error);
         res.status(500).json({ success: false, message: error.message || 'Lỗi khi gọi điện' });
     }
 };
@@ -131,7 +129,6 @@ export const getCallStatus = async (req, res, next) => {
             }
         });
     } catch (error) {
-        console.error('Get call status error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

@@ -75,7 +75,6 @@ class FileModel extends BaseModel {
       try {
         await deleteCloudinaryFile(publicId);
       } catch (err) {
-        console.error('Cloudinary delete error:', err);
       }
     }
 

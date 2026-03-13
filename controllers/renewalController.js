@@ -23,7 +23,8 @@ export const getStudentsForRenewal = async (req, res, next) => {
 // Tạo renewal mới
 export const createRenewal = async (req, res, next) => {
     try {
-        const { student_id, package_id, renewal_type, new_class_id, promotion_id, deposit_amount, note } = req.body;
+        const { student_id, package_id, renewal_type, new_class_id, promotion_id,
+                scholarship_months, deposit_amount, paid_amount, payment_status, note } = req.body;
 
         if (!student_id || !package_id) {
             return res.status(400).json({ success: false, message: 'Thiếu thông tin bắt buộc' });
@@ -35,7 +36,10 @@ export const createRenewal = async (req, res, next) => {
             renewal_type,
             new_class_id,
             promotion_id,
+            scholarship_months: scholarship_months || 0,
             deposit_amount: deposit_amount || 0,
+            paid_amount: paid_amount || deposit_amount || 0,
+            payment_status: payment_status || 'pending',
             note,
             created_by: req.user.id
         });

@@ -1,5 +1,7 @@
 import UserModel from '../models/UserModel.js';
 import emailService from '../services/emailService.js';
+import bcrypt from 'bcryptjs';
+import db from '../config/database.js';
 
 export const getAll = async (req, res, next) => {
   try {
@@ -20,7 +22,8 @@ export const getById = async (req, res, next) => {
 
 export const getByRole = async (req, res, next) => {
   try {
-    const users = await UserModel.findByRole(req.params.role);
+    const branchId = req.query.branchId ? parseInt(req.query.branchId) : null;
+    const users = await UserModel.findByRole(req.params.role, branchId);
     res.json({ success: true, data: users });
   } catch (error) { next(error); }
 };
@@ -82,10 +85,8 @@ export const create = async (req, res, next) => {
         );
         emailSent = result.success;
         if (!emailSent) {
-          console.log('Email send failed:', result.message);
         }
       } catch (emailError) {
-        console.error('Email error:', emailError.message);
       }
     }
 
@@ -153,7 +154,6 @@ export const resetPassword = async (req, res, next) => {
           const result = await emailService.sendPasswordReset(user.email, user.full_name, newPassword);
           emailSent = result.success;
         } catch (e) {
-          console.error('Email error:', e.message);
         }
       }
     }
@@ -177,5 +177,24 @@ export const remove = async (req, res, next) => {
   try {
     await UserModel.update(req.params.id, { is_active: 0 });
     res.json({ success: true, message: 'Xóa user thành công' });
+  } catch (error) { next(error); }
+};
+
+export const changePassword = async (req, res, next) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    if (!oldPassword || !newPassword) return res.status(400).json({ success: false, message: 'Vui lòng nhập đầy đủ thông tin' });
+    if (newPassword.length < 6) return res.status(400).json({ success: false, message: 'Mật khẩu mới phải có ít nhất 6 ký tự' });
+
+    const [rows] = await db.query('SELECT password FROM users WHERE id = ?', [req.user.id]);
+    if (!rows.length) return res.status(404).json({ success: false, message: 'Người dùng không tồn tại' });
+
+    const match = await bcrypt.compare(oldPassword, rows[0].password);
+    if (!match) return res.status(400).json({ success: false, message: 'Mật khẩu hiện tại không đúng' });
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE users SET password = ? WHERE id = ?', [hashed, req.user.id]);
+
+    res.json({ success: true, message: 'Đổi mật khẩu thành công' });
   } catch (error) { next(error); }
 };

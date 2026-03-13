@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { authenticate, authorize, authorizeRole } from '../middleware/auth.js';
 import { upload } from '../config/cloudinary.js';
 import { validators, handleValidationErrors } from '../middleware/validate.js';
+import multer from 'multer';
+const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Controllers
 import * as auth from '../controllers/authController.js';
@@ -47,6 +49,7 @@ router.get('/users/:id', authenticate, authorize('users.view'), user.getById);
 router.post('/users', authenticate, authorize('users.create'), validators.createUser, handleValidationErrors, user.create);
 router.put('/users/:id', authenticate, authorize('users.edit'), validators.updateUser, handleValidationErrors, user.update);
 router.put('/users/:id/reset-password', authenticate, authorize('users.edit'), user.resetPassword);
+router.put('/users/change-password', authenticate, user.changePassword);
 router.delete('/users/:id', authenticate, authorize('users.delete'), user.remove);
 
 // STUDENTS
@@ -58,6 +61,7 @@ router.put('/students/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'C
 router.put('/students/:id/status', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.changeStatus);
 router.post('/students/:id/confirm-payment', authenticate, authorizeRole('ACCOUNTANT', 'EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.confirmPayment);
 router.delete('/students/:id', authenticate, authorizeRole('HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.remove);
+router.put('/students/:id/reassign', authenticate, authorizeRole('HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.reassignStudent);
 
 // Student documents
 router.get('/students/:id/documents', authenticate, authorize('students.view'), student.getDocuments);
@@ -113,8 +117,11 @@ router.get('/leads/month', authenticate, authorizeRole(...leadRoles), lead.getBy
 router.get('/leads/check-phone', authenticate, authorizeRole(...leadRoles), lead.checkPhone);
 router.get('/leads/trial-report', authenticate, authorizeRole(...leadRoles), lead.getTrialReport);
 router.get('/leads/trial-report/export', authenticate, authorizeRole(...leadRoles), lead.exportTrialReport);
-router.get('/leads/:id', authenticate, authorizeRole(...leadRoles), lead.getById);
+router.get('/leads/import/template', authenticate, authorizeRole(...leadRoles), lead.getImportTemplate);
 router.post('/leads', authenticate, authorizeRole(...leadRoles), validators.createLead, handleValidationErrors, lead.create);
+router.post('/leads/bulk-assign', authenticate, authorizeRole('HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), lead.bulkAssignLeads);
+router.post('/leads/import', authenticate, authorizeRole(...leadRoles), memUpload.single('file'), lead.importLeads);
+router.get('/leads/:id', authenticate, authorizeRole(...leadRoles), lead.getById);
 router.put('/leads/:id', authenticate, authorizeRole(...leadRoles), validators.updateLead, handleValidationErrors, lead.update);
 router.delete('/leads/:id', authenticate, authorizeRole('HOEC', 'OM', 'ADMIN'), lead.remove); // Chỉ manager được xóa
 router.post('/leads/:id/attended', authenticate, authorizeRole(...leadRoles), lead.markAttended);
@@ -125,6 +132,7 @@ router.post('/leads/:id/assign-class', authenticate, authorizeRole(...leadRoles)
 router.post('/leads/:id/convert', authenticate, authorizeRole(...leadRoles), lead.convertToStudent);
 router.post('/leads/:id/call-log', authenticate, authorizeRole(...leadRoles), lead.addCallLog);
 router.get('/leads/:id/call-logs', authenticate, authorizeRole(...leadRoles), lead.getCallLogs);
+router.put('/leads/:id/assign', authenticate, authorizeRole('HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), lead.assignLead);
 router.post('/sessions/:id/reschedule', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.reschedule);
 // SESSIONS
 router.get('/sessions', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.getAll);

@@ -1,5 +1,6 @@
 import StudentModel from '../models/StudentModel.js';
 import fs from 'fs';
+import db from '../config/database.js';
 
 // Helper: Lấy branch filter cho user
 const getBranchFilter = (req) => {
@@ -18,8 +19,10 @@ const getBranchFilter = (req) => {
 
 export const getAll = async (req, res, next) => {
   try {
-    const { status, subjectId, class_id, search, fee_status, fee_end_month, page = 1, limit = 20 } = req.query;
-    const saleId = req.user.role_name === 'SALE' ? req.user.id : null;
+    const { status, subjectId, class_id, search, fee_status, fee_end_month, saleId: querySaleId, page = 1, limit = 20 } = req.query;
+    // SALE/EC only see their own students; managers can filter by saleId query param
+    const roleName = req.user.role_name;
+    const saleId = (roleName === 'SALE' || roleName === 'EC') ? req.user.id : (querySaleId || null);
     const branchId = getBranchFilter(req);
     const result = await StudentModel.findAllWithRelations({ status, subjectId, classId: class_id, search, saleId, branchId, feeStatus: fee_status, feeEndMonth: fee_end_month, page, limit });
     res.json({ success: true, ...result });
@@ -64,6 +67,9 @@ export const create = async (req, res, next) => {
     const giftId = req.body.giftId || req.body.gift_id;
     const giftName = req.body.giftName || req.body.gift_name;
     const paidAmount = req.body.paidAmount || req.body.paid_amount;
+    const depositAmount = req.body.depositAmount || req.body.deposit_amount;
+    const feeTotal = req.body.feeTotal || req.body.fee_total || tuitionFee;
+    const promotionId = req.body.promotionId || req.body.promotion_id;
     const paymentStatus = req.body.paymentStatus || req.body.payment_status;
 
     if (!fullName || !parentName || !parentPhone) {
@@ -83,6 +89,22 @@ export const create = async (req, res, next) => {
     const branch = req.user.branches?.find(b => b.id === finalBranchId);
     const branchCode = branch?.code || 'HS';
 
+    // Tính sessions từ gói học phí
+    let totalSessions = 0, feeStartDate = null, feeEndDate = null;
+    if (packageId) {
+      const [pkgRows] = await db.query('SELECT sessions_count, months FROM packages WHERE id = ?', [parseInt(packageId)]);
+      if (pkgRows.length) {
+        const pkg = pkgRows[0];
+        const schMonths = parseInt(scholarshipMonths) || 0;
+        totalSessions = (parseInt(pkg.sessions_count) || 0) + schMonths * 4;
+        const today = new Date();
+        feeStartDate = today.toISOString().slice(0, 10);
+        const endDate = new Date(today);
+        endDate.setMonth(endDate.getMonth() + (parseInt(pkg.months) || 0) + schMonths);
+        feeEndDate = endDate.toISOString().slice(0, 10);
+      }
+    }
+
     const student = await StudentModel.create({
       branch_id: parseInt(finalBranchId),
       student_code: StudentModel.generateCode(branchCode),
@@ -97,12 +119,20 @@ export const create = async (req, res, next) => {
       level_id: levelId ? parseInt(levelId) : null,
       package_id: packageId ? parseInt(packageId) : null,
       tuition_fee: tuitionFee ? parseFloat(tuitionFee) : 0,
+      fee_total: feeTotal ? parseFloat(feeTotal) : (tuitionFee ? parseFloat(tuitionFee) : 0),
       discount_amount: discountAmount ? parseFloat(discountAmount) : 0,
+      promotion_id: promotionId ? parseInt(promotionId) : null,
       scholarship_months: scholarshipMonths ? parseInt(scholarshipMonths) : 0,
       gift_id: giftId ? parseInt(giftId) : null,
       gift_name: giftName || null,
+      deposit_amount: depositAmount ? parseFloat(depositAmount) : 0,
       paid_amount: paidAmount ? parseFloat(paidAmount) : 0,
+      actual_revenue: paidAmount ? parseFloat(paidAmount) : 0,
       payment_status: paymentStatus || 'pending',
+      total_sessions: totalSessions,
+      remaining_sessions: totalSessions,
+      fee_start_date: feeStartDate,
+      fee_end_date: feeEndDate,
       sessions_per_week: 1,
       note: note || null,
       sale_id: req.user.id,
@@ -115,8 +145,6 @@ export const create = async (req, res, next) => {
 
 export const update = async (req, res, next) => {
   try {
-    const { fullName, birthYear, gender, address, parentName, parentPhone, parentEmail, subjectId, levelId, status, note } = req.body;
-
     const existing = await StudentModel.findById(req.params.id);
     if (!existing) return res.status(404).json({ success: false, message: 'Không tìm thấy' });
 
@@ -124,18 +152,51 @@ export const update = async (req, res, next) => {
       return res.status(403).json({ success: false, message: 'Không có quyền' });
     }
 
+    const b = req.body;
     const data = {};
+
+    // Thông tin cơ bản
+    const fullName = b.fullName || b.full_name;
+    const parentName = b.parentName || b.parent_name;
+    const parentPhone = b.parentPhone || b.parent_phone;
+    const parentEmail = b.parentEmail !== undefined ? b.parentEmail : b.parent_email;
     if (fullName) data.full_name = fullName;
-    if (birthYear) data.birth_year = birthYear;
-    if (gender !== undefined) data.gender = gender;
-    if (address !== undefined) data.address = address;
+    if (b.birth_year !== undefined) data.birth_year = b.birth_year || null;
+    if (b.gender !== undefined) data.gender = b.gender || null;
+    if (b.address !== undefined) data.address = b.address || null;
     if (parentName) data.parent_name = parentName;
     if (parentPhone) data.parent_phone = parentPhone;
-    if (parentEmail !== undefined) data.parent_email = parentEmail;
-    if (subjectId !== undefined) data.subject_id = subjectId || null;
-    if (levelId !== undefined) data.level_id = levelId || null;
-    if (status) data.status = status;
-    if (note !== undefined) data.note = note;
+    if (parentEmail !== undefined) data.parent_email = parentEmail || null;
+    if (b.note !== undefined) data.note = b.note || null;
+    if (b.status) data.status = b.status;
+
+    // Package / học phí
+    const packageId = b.package_id !== undefined ? b.package_id : undefined;
+    const tuitionFee = b.tuition_fee !== undefined ? b.tuition_fee : undefined;
+    const feeTotal = b.fee_total !== undefined ? b.fee_total : undefined;
+    const discountAmount = b.discount_amount !== undefined ? b.discount_amount : undefined;
+    const promotionId = b.promotion_id !== undefined ? b.promotion_id : undefined;
+    const scholarshipMonths = b.scholarship_months !== undefined ? b.scholarship_months : undefined;
+    const giftId = b.gift_id !== undefined ? b.gift_id : undefined;
+    const giftName = b.gift_name !== undefined ? b.gift_name : undefined;
+    if (packageId !== undefined) data.package_id = packageId ? parseInt(packageId) : null;
+    if (tuitionFee !== undefined) data.tuition_fee = parseFloat(tuitionFee) || 0;
+    if (feeTotal !== undefined) data.fee_total = parseFloat(feeTotal) || 0;
+    if (discountAmount !== undefined) data.discount_amount = parseFloat(discountAmount) || 0;
+    if (promotionId !== undefined) data.promotion_id = promotionId ? parseInt(promotionId) : null;
+    if (scholarshipMonths !== undefined) data.scholarship_months = parseInt(scholarshipMonths) || 0;
+    if (giftId !== undefined) data.gift_id = giftId ? parseInt(giftId) : null;
+    if (giftName !== undefined) data.gift_name = giftName || null;
+
+    // Thanh toán
+    const paymentStatus = b.payment_status !== undefined ? b.payment_status : undefined;
+    const depositAmount = b.deposit_amount !== undefined ? b.deposit_amount : undefined;
+    const paidAmount = b.paid_amount !== undefined ? b.paid_amount : undefined;
+    const actualRevenue = b.actual_revenue !== undefined ? b.actual_revenue : undefined;
+    if (paymentStatus !== undefined) data.payment_status = paymentStatus;
+    if (depositAmount !== undefined) data.deposit_amount = parseFloat(depositAmount) || 0;
+    if (paidAmount !== undefined) data.paid_amount = parseFloat(paidAmount) || 0;
+    if (actualRevenue !== undefined) data.actual_revenue = parseFloat(actualRevenue) || 0;
 
     await StudentModel.update(req.params.id, data);
     res.json({ success: true, message: 'Cập nhật thành công' });
@@ -294,7 +355,6 @@ export const getEnrollmentForm = async (req, res, next) => {
       }
     });
   } catch (error) {
-    console.error('Enrollment form error:', error);
     next(error);
   }
 };
@@ -438,7 +498,21 @@ export const getFeeWarning = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Fee warning error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+// Chuyển học sinh cho sale khác (manager only)
+export const reassignStudent = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { saleId } = req.body;
+    if (!saleId) return res.status(400).json({ success: false, message: 'Thiếu saleId' });
+
+    const student = await StudentModel.findById(id);
+    if (!student) return res.status(404).json({ success: false, message: 'Không tìm thấy học sinh' });
+
+    await db.execute('UPDATE students SET sale_id = ?, updated_at = NOW() WHERE id = ?', [saleId, id]);
+    res.json({ success: true, message: 'Đã chuyển học sinh thành công' });
+  } catch (error) { next(error); }
 };

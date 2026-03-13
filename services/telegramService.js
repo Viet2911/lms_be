@@ -10,7 +10,6 @@ const telegramService = {
    */
   async sendMessage(message) {
     if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-      console.log('[Telegram] Bot chưa được cấu hình. Bỏ qua gửi thông báo.');
       return false;
     }
 
@@ -33,14 +32,11 @@ const telegramService = {
       const result = await response.json();
       
       if (result.ok) {
-        console.log('[Telegram] Gửi thông báo thành công');
         return true;
       } else {
-        console.error('[Telegram] Lỗi:', result.description);
         return false;
       }
     } catch (error) {
-      console.error('[Telegram] Lỗi kết nối:', error.message);
       return false;
     }
   },

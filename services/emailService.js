@@ -36,7 +36,6 @@ class EmailService {
       }
       return false;
     } catch (error) {
-      console.error('Email config load error:', error.message);
       return false;
     }
   }
@@ -46,7 +45,6 @@ class EmailService {
     if (!this.transporter) {
       const loaded = await this.loadConfig();
       if (!loaded) {
-        console.log('Email not configured, skipping send');
         return { success: false, message: 'Email chưa được cấu hình' };
       }
     }
@@ -60,10 +58,8 @@ class EmailService {
         html
       });
 
-      console.log('Email sent:', info.messageId);
       return { success: true, messageId: info.messageId };
     } catch (error) {
-      console.error('Email send error:', error.message);
       return { success: false, message: error.message };
     }
   }

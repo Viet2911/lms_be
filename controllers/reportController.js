@@ -90,7 +90,6 @@ export const getSaleReport = async (req, res) => {
         res.json({ success: true, data: { ...data, byEc } });
 
     } catch (error) {
-        console.error('Sale report error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -140,7 +139,6 @@ export const getTrialReport = async (req, res) => {
         res.json({ success: true, data: { ...data, details } });
 
     } catch (error) {
-        console.error('Trial report error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -180,7 +178,6 @@ export const getKPIReport = async (req, res) => {
         res.json({ success: true, data: rows });
 
     } catch (error) {
-        console.error('KPI report error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -225,7 +222,6 @@ export const getMyKPI = async (req, res) => {
         });
 
     } catch (error) {
-        console.error('My KPI error:', error);
         res.status(500).json({ success: false, message: error.message });
     }
 };

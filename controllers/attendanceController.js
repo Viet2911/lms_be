@@ -28,8 +28,9 @@ async function canMarkAttendance(sessionId, user) {
   // Teacher can only mark within time window
   if (user.role_name === 'TEACHER') {
     const [sessions] = await db.query(
-      `SELECT s.*, c.teacher_id FROM sessions s 
-       JOIN classes c ON s.class_id = c.id 
+      `SELECT s.id, s.session_date, s.start_time, s.end_time,
+              s.teacher_id, s.substitute_teacher_id, s.attendance_submitted
+       FROM sessions s
        WHERE s.id = ?`,
       [sessionId]
     );
@@ -40,9 +41,9 @@ async function canMarkAttendance(sessionId, user) {
 
     const session = sessions[0];
 
-    // Check if teacher is assigned to this class
-    if (session.teacher_id !== user.id) {
-      return { allowed: false, reason: 'Bạn không phải giáo viên của lớp này' };
+    // Check if teacher (or substitute) is assigned to this session
+    if (session.teacher_id !== user.id && session.substitute_teacher_id !== user.id) {
+      return { allowed: false, reason: 'Bạn không phải giáo viên của buổi học này' };
     }
 
     const now = new Date();
@@ -59,9 +60,9 @@ async function canMarkAttendance(sessionId, user) {
     const sessionEnd = new Date(sessionDate);
     sessionEnd.setHours(endHour, endMin, 0, 0);
 
-    // Time window: 5 minutes before start to 15 minutes after end
-    const windowStart = new Date(sessionStart.getTime() - 5 * 60 * 1000);
-    const windowEnd = new Date(sessionEnd.getTime() + 15 * 60 * 1000);
+    // Time window: 30 minutes before start to 60 minutes after end
+    const windowStart = new Date(sessionStart.getTime() - 30 * 60 * 1000);
+    const windowEnd = new Date(sessionEnd.getTime() + 60 * 60 * 1000);
 
     if (now < windowStart) {
       return {
@@ -73,7 +74,7 @@ async function canMarkAttendance(sessionId, user) {
     if (now > windowEnd) {
       return {
         allowed: false,
-        reason: 'Đã quá thời gian điểm danh (sau 15 phút kết thúc buổi học). Vui lòng liên hệ CM/OM.'
+        reason: 'Đã quá thời gian điểm danh (sau 60 phút kết thúc buổi học). Vui lòng liên hệ CM/OM.'
       };
     }
 
@@ -118,7 +119,6 @@ export const markAttendance = async (req, res, next) => {
         try {
           await TelegramService.sendMessage(message);
         } catch (teleErr) {
-          console.error('Telegram warning error:', teleErr);
         }
       }
     }

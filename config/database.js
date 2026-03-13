@@ -4,7 +4,7 @@ const pool = mysql.createPool({
   host: process.env.DB_HOST || 'metro.proxy.rlwy.net',
   port: process.env.DB_PORT || 20518,
   user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || process.env.DB_PASS || 'JsyMJSxTQHHUfpzwrSoJWBusIMIcHZMn',
+  password: process.env.DB_PASSWORD || process.env.DB_PASS || '',
   database: process.env.DB_NAME || 'railway',
   waitForConnections: true,
   connectionLimit: 50,
@@ -20,7 +20,6 @@ const pool = mysql.createPool({
 
 pool.getConnection()
   .then(conn => {
-    console.log('✅ Database connected');
     conn.release();
   })
   .catch(err => {

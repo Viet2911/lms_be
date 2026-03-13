@@ -4,24 +4,39 @@ import PromotionModel from '../models/PromotionModel.js';
 import telegramService from '../services/telegramService.js';
 import { getBranchFilter, getCreateBranchId, getBranchCode } from '../utils/branchHelper.js';
 import db from '../config/database.js';
+import ExcelJS from 'exceljs';
 
-// Helper to get sale filter based on role
+const MANAGER_ROLES = ['HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
+
+// Helper: manager roles xem tất cả leads (không filter sale_id)
+function isManager(req) {
+  return MANAGER_ROLES.includes(req.user.role_name?.toUpperCase());
+}
+
+// Helper: EC/SALE chỉ thấy leads của mình
 function getSaleFilter(req) {
-  // EC và SALE chỉ thấy leads của mình
-  // HOEC, OM, ADMIN thấy tất cả (trong branch của họ)
-  const role = req.user.role_name;
-  if (role === 'EC' || role === 'SALE') {
-    return req.user.id;
+  const role = req.user.role_name?.toUpperCase();
+  if (role === 'EC' || role === 'SALE') return req.user.id;
+  return null;
+}
+
+// Helper: manager trở lên xem tất cả branch (không bị giới hạn branch)
+function getLeadBranchFilter(req) {
+  if (isManager(req)) {
+    // Manager: xem theo branchId query nếu có, không thì xem tất cả
+    return req.query.branchId ? parseInt(req.query.branchId) : null;
   }
-  return null; // Không filter theo sale_id
+  // EC/SALE/other: chỉ xem branch của mình
+  return getBranchFilter(req);
 }
 
 // Lấy danh sách leads
 export const getAll = async (req, res, next) => {
   try {
-    const { status, fromDate, toDate, search, source, page = 1, limit = 20 } = req.query;
-    const saleId = getSaleFilter(req);
-    const branchId = getBranchFilter(req);
+    const { status, fromDate, toDate, search, source, saleId: querySaleId, page = 1, limit = 20 } = req.query;
+    // EC/SALE chỉ thấy của mình; manager có thể filter theo saleId
+    const saleId = getSaleFilter(req) || querySaleId || null;
+    const branchId = getLeadBranchFilter(req);
 
     const result = await LeadModel.findAllWithRelations({
       status, fromDate, toDate, search, source, saleId, branchId, page, limit
@@ -33,8 +48,9 @@ export const getAll = async (req, res, next) => {
 // Thống kê
 export const getStats = async (req, res, next) => {
   try {
-    const saleId = getSaleFilter(req);
-    const branchId = getBranchFilter(req);
+    // Manager có thể filter theo saleId query param (EC filter)
+    const saleId = getSaleFilter(req) || (isManager(req) ? req.query.saleId || null : null);
+    const branchId = getLeadBranchFilter(req);
     const stats = await LeadModel.getStats(saleId, branchId);
     res.json({ success: true, data: stats });
   } catch (error) { next(error); }
@@ -53,8 +69,9 @@ export const getById = async (req, res, next) => {
 export const getByMonth = async (req, res, next) => {
   try {
     const { year, month } = req.query;
-    const saleId = getSaleFilter(req);
-    const branchId = getBranchFilter(req);
+    // Manager có thể filter theo saleId query (EC filter dropdown)
+    const saleId = getSaleFilter(req) || (isManager(req) ? req.query.saleId || null : null);
+    const branchId = getLeadBranchFilter(req);
     const data = await LeadModel.getByMonth(year, month, saleId, branchId);
     res.json({ success: true, data });
   } catch (error) { next(error); }
@@ -158,7 +175,7 @@ export const create = async (req, res, next) => {
         `📅 Lịch: ${scheduledDate ? `${scheduledDate} ${scheduledTime || ''}` : 'Chưa đặt lịch'}\n` +
         `👨‍💼 Sale: ${req.user.full_name}`
       );
-    } catch (e) { console.error('Telegram error:', e); }
+    } catch (e) { }
 
     res.status(201).json({
       success: true,
@@ -297,7 +314,7 @@ export const assignTrialClass = async (req, res, next) => {
         `⏰ Giờ: ${scheduledTime}\n` +
         (lead.subject_name ? `📚 Môn: ${lead.subject_name}` : '')
       );
-    } catch (e) { console.error('Telegram error:', e); }
+    } catch (e) { }
 
     res.json({ success: true, message: 'Đã đặt lịch trải nghiệm' });
   } catch (error) { next(error); }
@@ -338,7 +355,7 @@ export const completeSession = async (req, res, next) => {
         `📊 Tiến độ: ${newSessionsAttended}/${lead.trial_sessions_max || 3} buổi\n` +
         `⏳ Trạng thái: Chờ đặt lịch tiếp hoặc chuyển đổi`
       );
-    } catch (e) { console.error('Telegram error:', e); }
+    } catch (e) { }
 
     res.json({ success: true, message: `Đã hoàn thành buổi ${sessionNum}. Chờ đặt lịch tiếp hoặc chuyển đổi.` });
   } catch (error) { next(error); }
@@ -469,7 +486,7 @@ export const convertToStudent = async (req, res, next) => {
         `👨‍💼 EC: ${lead.sale_name || '-'}\n` +
         (classId ? '' : `⏰ CM vui lòng xếp lớp!`)
       );
-    } catch (e) { console.error('Telegram error:', e); }
+    } catch (e) { }
 
     res.json({
       success: true,
@@ -546,7 +563,8 @@ export const getCallLogs = async (req, res, next) => {
 export const getTrialReport = async (req, res, next) => {
   try {
     const { start_date, end_date, branch_id, branchId, source, status, search, page = 1, limit = 50 } = req.query;
-    const effectiveBranchId = branch_id || branchId || getBranchFilter(req);
+    const effectiveBranchId = branch_id || branchId || getLeadBranchFilter(req);
+    const saleFilter = getSaleFilter(req);
     const offset = (page - 1) * limit;
 
     // Main query - leads that have scheduled or attended trials
@@ -578,6 +596,10 @@ export const getTrialReport = async (req, res, next) => {
     if (effectiveBranchId) {
       sql += ' AND l.branch_id = ?';
       params.push(effectiveBranchId);
+    }
+    if (saleFilter) {
+      sql += ' AND l.sale_id = ?';
+      params.push(saleFilter);
     }
     if (source) {
       sql += ' AND l.source = ?';
@@ -785,7 +807,6 @@ export const getCalendar = async (req, res) => {
     res.json({ success: true, data: rows });
 
   } catch (error) {
-    console.error('Get calendar error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -841,8 +862,116 @@ export const getLeadStats = async (req, res) => {
     res.json({ success: true, data: stats });
 
   } catch (error) {
-    console.error('Get lead stats error:', error);
     res.status(500).json({ success: false, message: error.message });
   }
+};
+
+// ============ ASSIGN / IMPORT ============
+
+// Chuyển 1 lead cho sale khác
+export const assignLead = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { saleId } = req.body;
+    if (!saleId) return res.status(400).json({ success: false, message: 'Thiếu saleId' });
+
+    const lead = await LeadModel.findById(id);
+    if (!lead) return res.status(404).json({ success: false, message: 'Không tìm thấy lead' });
+
+    await db.execute('UPDATE leads SET sale_id = ?, updated_at = NOW() WHERE id = ?', [saleId, id]);
+    res.json({ success: true, message: 'Đã chuyển lead thành công' });
+  } catch (error) { next(error); }
+};
+
+// Chuyển nhiều lead cho sale
+export const bulkAssignLeads = async (req, res, next) => {
+  try {
+    const { leadIds, saleId } = req.body;
+    if (!leadIds?.length || !saleId) {
+      return res.status(400).json({ success: false, message: 'Thiếu leadIds hoặc saleId' });
+    }
+    const placeholders = leadIds.map(() => '?').join(',');
+    await db.execute(
+      `UPDATE leads SET sale_id = ?, updated_at = NOW() WHERE id IN (${placeholders})`,
+      [saleId, ...leadIds]
+    );
+    res.json({ success: true, message: `Đã chuyển ${leadIds.length} lead thành công` });
+  } catch (error) { next(error); }
+};
+
+// Import leads từ file Excel
+export const importLeads = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'Không có file' });
+
+    const branchId = getCreateBranchId(req);
+    if (!branchId) return res.status(400).json({ success: false, message: 'Cần chọn cơ sở' });
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(req.file.buffer);
+    const ws = workbook.worksheets[0];
+    if (!ws) return res.status(400).json({ success: false, message: 'File Excel rỗng' });
+
+    const rows = [];
+    ws.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // skip header
+      const customerName = row.getCell(1).text?.trim();
+      const customerPhone = row.getCell(2).text?.trim();
+      const studentName = row.getCell(3).text?.trim();
+      const source = row.getCell(4).text?.trim() || 'other';
+      const note = row.getCell(5).text?.trim() || null;
+      const saleIdCell = row.getCell(6).text?.trim();
+
+      if (!customerName || !customerPhone) return;
+      rows.push({ customerName, customerPhone, studentName: studentName || customerName, source, note, saleId: saleIdCell || req.user.id });
+    });
+
+    if (!rows.length) return res.status(400).json({ success: false, message: 'Không có dữ liệu hợp lệ' });
+
+    let created = 0, skipped = 0;
+    const branchCode = getBranchCode(req.user, branchId);
+
+    for (const r of rows) {
+      // Check duplicate phone in branch
+      const existing = await LeadModel.findByPhone(r.customerPhone, branchId);
+      if (existing) { skipped++; continue; }
+
+      const code = await LeadModel.generateCode(branchCode);
+      await db.execute(
+        `INSERT INTO leads (branch_id, code, customer_name, customer_phone, student_name, source, note, sale_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', NOW(), NOW())`,
+        [branchId, code, r.customerName, r.customerPhone, r.studentName, r.source, r.note, r.saleId]
+      );
+      created++;
+    }
+
+    res.json({ success: true, message: `Đã import ${created} lead, bỏ qua ${skipped} trùng số điện thoại`, data: { created, skipped } });
+  } catch (error) { next(error); }
+};
+
+// Download template Excel cho import leads
+export const getImportTemplate = async (req, res, next) => {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const ws = workbook.addWorksheet('Leads');
+    ws.columns = [
+      { header: 'Tên phụ huynh *', key: 'customerName', width: 25 },
+      { header: 'SĐT phụ huynh *', key: 'customerPhone', width: 18 },
+      { header: 'Tên học viên', key: 'studentName', width: 25 },
+      { header: 'Nguồn (facebook/zalo/referral/other)', key: 'source', width: 30 },
+      { header: 'Ghi chú', key: 'note', width: 30 },
+      { header: 'ID Sale (để trống = tự nhận)', key: 'saleId', width: 25 },
+    ];
+    // Style header row
+    ws.getRow(1).font = { bold: true };
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9EAD3' } };
+    // Example row
+    ws.addRow(['Nguyễn Văn A', '0901234567', 'Nguyễn Minh B', 'facebook', 'Quan tâm lớp sáng', '']);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=template_import_leads.xlsx');
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) { next(error); }
 };
 
