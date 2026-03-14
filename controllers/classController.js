@@ -9,6 +9,7 @@ export const getAll = async (req, res, next) => {
     let teacherId, cmId;
     if (req.user.role_name === 'TEACHER') teacherId = req.user.id;
     else if (req.user.role_name === 'CM') cmId = req.user.id;
+    // HEAD_TEACHER xem tất cả lớp trong branch (không filter theo teacherId)
 
     const result = await ClassModel.findAllWithRelations({ status, subjectId, teacherId, cmId, branchId, search, page, limit });
     res.json({ success: true, ...result });
