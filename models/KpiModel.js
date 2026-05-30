@@ -1,30 +1,28 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 
 class KpiModel extends BaseModel {
   constructor() {
     super('ec_kpi_targets');
   }
 
-  // Lấy KPI target của EC theo tháng
   async getByEcAndMonth(ecId, month) {
     const [rows] = await this.db.query(`
       SELECT k.*, u.full_name as ec_name, b.name as branch_name
       FROM ec_kpi_targets k
       JOIN users u ON k.ec_id = u.id
       JOIN branches b ON k.branch_id = b.id
-      WHERE k.ec_id = ? AND DATE_FORMAT(k.target_month, '%Y-%m') = ?
+      WHERE k.ec_id = ? AND TO_CHAR(k.target_month, 'YYYY-MM') = ?
     `, [ecId, month]);
     return rows[0] || null;
   }
 
-  // Lấy tất cả KPI targets theo tháng
   async getAllByMonth(month, branchId = null) {
     let sql = `
       SELECT k.*, u.full_name as ec_name, b.name as branch_name, b.code as branch_code
       FROM ec_kpi_targets k
       JOIN users u ON k.ec_id = u.id
       JOIN branches b ON k.branch_id = b.id
-      WHERE DATE_FORMAT(k.target_month, '%Y-%m') = ?
+      WHERE TO_CHAR(k.target_month, 'YYYY-MM') = ?
     `;
     const params = [month];
 
@@ -38,10 +36,9 @@ class KpiModel extends BaseModel {
     return rows;
   }
 
-  // Tạo hoặc cập nhật KPI target
   async upsertKpi(ecId, branchId, month, data, createdBy = null) {
     const targetMonth = `${month}-01`;
-    
+
     const [existing] = await this.db.query(
       'SELECT id FROM ec_kpi_targets WHERE ec_id = ? AND target_month = ?',
       [ecId, targetMonth]
@@ -49,24 +46,23 @@ class KpiModel extends BaseModel {
 
     if (existing.length > 0) {
       await this.db.query(
-        `UPDATE ec_kpi_targets SET 
+        `UPDATE ec_kpi_targets SET
           target_revenue = ?, target_checkin = ?, target_conversion = ?
         WHERE id = ?`,
         [data.target_revenue, data.target_checkin, data.target_conversion, existing[0].id]
       );
       return { id: existing[0].id, updated: true };
     } else {
-      const [result] = await this.db.query(
-        `INSERT INTO ec_kpi_targets 
+      const [rows] = await this.db.query(
+        `INSERT INTO ec_kpi_targets
           (ec_id, branch_id, target_month, target_revenue, target_checkin, target_conversion, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [ecId, branchId, targetMonth, data.target_revenue, data.target_checkin, data.target_conversion, createdBy]
       );
-      return { id: result.insertId, created: true };
+      return { id: rows[0]?.id, created: true };
     }
   }
 
-  // Lấy danh sách EC chưa có KPI
   async getEcsWithoutKpi(month, branchId = null) {
     let sql = `
       SELECT u.id, u.full_name, b.id as branch_id, b.name as branch_name
@@ -74,9 +70,9 @@ class KpiModel extends BaseModel {
       JOIN roles r ON u.role_id = r.id
       LEFT JOIN user_branches ub ON u.id = ub.user_id
       LEFT JOIN branches b ON ub.branch_id = b.id
-      WHERE r.name = 'EC' AND u.is_active = 1
+      WHERE r.name = 'EC' AND u.is_active = true
         AND u.id NOT IN (
-          SELECT ec_id FROM ec_kpi_targets WHERE DATE_FORMAT(target_month, '%Y-%m') = ?
+          SELECT ec_id FROM ec_kpi_targets WHERE TO_CHAR(target_month, 'YYYY-MM') = ?
         )
     `;
     const params = [month];
@@ -90,14 +86,13 @@ class KpiModel extends BaseModel {
     return rows;
   }
 
-  // Bulk set KPI cho nhiều EC
   async bulkSetKpi(targets, createdBy = null) {
     const results = [];
     for (const target of targets) {
       const result = await this.upsertKpi(
-        target.ec_id, 
-        target.branch_id, 
-        target.month, 
+        target.ec_id,
+        target.branch_id,
+        target.month,
         {
           target_revenue: target.target_revenue,
           target_checkin: target.target_checkin || 0,

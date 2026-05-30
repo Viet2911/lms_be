@@ -105,16 +105,16 @@ export const requestApproval = async (req, res, next) => {
         }
 
         // Create approval request
-        const [result] = await pool.query(`
-      INSERT INTO scholarship_approvals 
+        const [rows] = await pool.query(`
+      INSERT INTO scholarship_approvals
       (student_id, lead_id, trial_id, package_id, default_months, requested_months, extra_months, requested_by, request_reason)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
     `, [student_id, lead_id, trial_id, package_id, defaultMonths, requested_months, extraMonths, req.user.id, reason]);
 
         res.json({
             success: true,
             data: {
-                id: result.insertId,
+                id: rows[0]?.id,
                 needs_approval: true,
                 extra_months: extraMonths,
                 message: `Học bổng vượt ${extraMonths} tháng, đã gửi yêu cầu duyệt`

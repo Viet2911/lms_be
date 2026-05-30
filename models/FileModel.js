@@ -1,4 +1,4 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 import { deleteFile as deleteCloudinaryFile, getPublicIdFromUrl } from '../config/cloudinary.js';
 
 class FileModel extends BaseModel {
@@ -16,13 +16,9 @@ class FileModel extends BaseModel {
     const params = [];
 
     if (branchId) {
-      // Filter by branch: only files uploaded by users in that branch
-      sql += ` AND f.uploaded_by IN (
-        SELECT user_id FROM user_branches WHERE branch_id = ?
-      )`;
+      sql += ` AND f.uploaded_by IN (SELECT user_id FROM user_branches WHERE branch_id = ?)`;
       params.push(branchId);
     } else if (!isAdmin && userId) {
-      // Non-admin without branch filter: show files from user's own branches
       sql += ` AND f.uploaded_by IN (
         SELECT user_id FROM user_branches WHERE branch_id IN (
           SELECT branch_id FROM user_branches WHERE user_id = ?
@@ -31,19 +27,19 @@ class FileModel extends BaseModel {
       params.push(userId);
     }
     if (search) {
-      sql += ' AND (f.filename LIKE ? OR f.description LIKE ?)';
+      sql += ' AND (f.filename ILIKE ? OR f.description ILIKE ?)';
       params.push(`%${search}%`, `%${search}%`);
     }
     if (type) {
-      if (type === 'pdf') sql += ' AND f.mime_type LIKE "%pdf%"';
-      else if (type === 'image') sql += ' AND f.mime_type LIKE "%image%"';
-      else if (type === 'doc') sql += ' AND (f.mime_type LIKE "%word%" OR f.mime_type LIKE "%document%")';
+      if (type === 'pdf') sql += ` AND f.mime_type LIKE '%pdf%'`;
+      else if (type === 'image') sql += ` AND f.mime_type LIKE '%image%'`;
+      else if (type === 'doc') sql += ` AND (f.mime_type LIKE '%word%' OR f.mime_type LIKE '%document%')`;
     }
     if (category) { sql += ' AND f.category = ?'; params.push(category); }
 
     const countSql = sql.replace(/SELECT .* FROM/, 'SELECT COUNT(*) as total FROM');
     const [countRows] = await this.db.query(countSql, params);
-    const total = countRows[0]?.total || 0;
+    const total = parseInt(countRows[0]?.total || 0);
 
     sql += ' ORDER BY f.created_at DESC LIMIT ? OFFSET ?';
     params.push(+limit, (+page - 1) * +limit);
@@ -56,13 +52,13 @@ class FileModel extends BaseModel {
     const { filename, originalname, mimetype, size, path: fileUrl } = fileInfo;
     const { description, category } = fileInfo;
 
-    const [result] = await this.db.query(
+    const [rows] = await this.db.query(
       `INSERT INTO files (filename, original_name, mime_type, file_size, file_url, description, category, uploaded_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       [filename, originalname, mimetype, size, fileUrl, description || '', category || 'other', userId]
     );
 
-    return { id: result.insertId, filename: originalname, file_url: fileUrl };
+    return { id: rows[0]?.id, filename: originalname, file_url: fileUrl };
   }
 
   async deleteFile(id, userId, isAdmin) {
@@ -72,10 +68,7 @@ class FileModel extends BaseModel {
 
     const publicId = getPublicIdFromUrl(file.file_url);
     if (publicId) {
-      try {
-        await deleteCloudinaryFile(publicId);
-      } catch (err) {
-      }
+      try { await deleteCloudinaryFile(publicId); } catch (err) { /* ignore */ }
     }
 
     await this.delete(id);

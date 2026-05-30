@@ -1,4 +1,4 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 
 class ExperienceModel extends BaseModel {
   constructor() {
@@ -14,7 +14,7 @@ class ExperienceModel extends BaseModel {
       SELECT e.id, e.code, e.branch_id, b.name as branch_name, b.code as branch_code,
              e.customer_name, e.customer_phone, e.customer_email,
              e.student_name, e.student_birth_year, e.subject_id,
-             DATE_FORMAT(e.scheduled_date, '%Y-%m-%d') as scheduled_date,
+             TO_CHAR(e.scheduled_date, 'YYYY-MM-DD') as scheduled_date,
              e.scheduled_time, e.duration_minutes, e.status, e.rating, e.feedback, e.note, e.sale_id, e.created_at,
              s.name as subject_name, l.name as level_name, u.full_name as sale_name
       FROM experience_schedules e
@@ -32,13 +32,13 @@ class ExperienceModel extends BaseModel {
     if (fromDate) { sql += ' AND e.scheduled_date >= ?'; params.push(fromDate); }
     if (toDate) { sql += ' AND e.scheduled_date <= ?'; params.push(toDate); }
     if (search) {
-      sql += ' AND (e.customer_name LIKE ? OR e.student_name LIKE ? OR e.customer_phone LIKE ?)';
+      sql += ' AND (e.customer_name ILIKE ? OR e.student_name ILIKE ? OR e.customer_phone ILIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     const countSql = sql.replace(/SELECT .* FROM/, 'SELECT COUNT(*) as total FROM');
     const [countRows] = await this.db.query(countSql, params);
-    const total = countRows[0]?.total || 0;
+    const total = parseInt(countRows[0]?.total || 0);
 
     sql += ' ORDER BY e.scheduled_date DESC, e.scheduled_time DESC LIMIT ? OFFSET ?';
     params.push(+limit, (+page - 1) * +limit);
@@ -52,7 +52,7 @@ class ExperienceModel extends BaseModel {
       `SELECT e.id, e.code, e.branch_id, b.name as branch_name, b.code as branch_code,
               e.customer_name, e.customer_phone, e.customer_email,
               e.student_name, e.student_birth_year, e.subject_id, e.level_id,
-              DATE_FORMAT(e.scheduled_date, '%Y-%m-%d') as scheduled_date,
+              TO_CHAR(e.scheduled_date, 'YYYY-MM-DD') as scheduled_date,
               e.scheduled_time, e.duration_minutes, e.status, e.rating, e.feedback, e.note, e.sale_id, e.created_at,
               s.name as subject_name, l.name as level_name, u.full_name as sale_name
        FROM experience_schedules e
@@ -74,10 +74,10 @@ class ExperienceModel extends BaseModel {
 
   async getStats(saleId = null, branchId = null) {
     let sql = `SELECT COUNT(*) as total,
-      SUM(status = 'pending') as pending,
-      SUM(status = 'completed') as completed,
-      SUM(status = 'converted') as converted,
-      SUM(scheduled_date = CURDATE()) as today
+      COUNT(*) FILTER (WHERE status = 'pending') as pending,
+      COUNT(*) FILTER (WHERE status = 'completed') as completed,
+      COUNT(*) FILTER (WHERE status = 'converted') as converted,
+      COUNT(*) FILTER (WHERE scheduled_date = CURRENT_DATE) as today
       FROM experience_schedules WHERE 1=1`;
     const params = [];
     if (branchId) { sql += ' AND branch_id = ?'; params.push(branchId); }
@@ -90,12 +90,12 @@ class ExperienceModel extends BaseModel {
     let sql = `
       SELECT e.id, e.code, e.branch_id, b.code as branch_code,
              e.customer_name, e.customer_phone, e.student_name, e.student_birth_year,
-             DATE_FORMAT(e.scheduled_date, '%Y-%m-%d') as scheduled_date,
+             TO_CHAR(e.scheduled_date, 'YYYY-MM-DD') as scheduled_date,
              e.scheduled_time, e.status, s.name as subject_name
       FROM experience_schedules e
       JOIN branches b ON e.branch_id = b.id
       LEFT JOIN subjects s ON e.subject_id = s.id
-      WHERE YEAR(e.scheduled_date) = ? AND MONTH(e.scheduled_date) = ?
+      WHERE EXTRACT(YEAR FROM e.scheduled_date) = ? AND EXTRACT(MONTH FROM e.scheduled_date) = ?
     `;
     const params = [year, month];
     if (branchId) { sql += ' AND e.branch_id = ?'; params.push(branchId); }

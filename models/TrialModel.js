@@ -1,4 +1,4 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 
 class TrialModel extends BaseModel {
   constructor() {
@@ -13,7 +13,7 @@ class TrialModel extends BaseModel {
     let sql = `
       SELECT ts.*, b.name as branch_name, b.code as branch_code,
              e.code as experience_code, s.name as subject_name, l.name as level_name, u.full_name as sale_name,
-             (SELECT c.class_name FROM trial_class_students tcs JOIN classes c ON tcs.class_id = c.id 
+             (SELECT c.class_name FROM trial_class_students tcs JOIN classes c ON tcs.class_id = c.id
               WHERE tcs.trial_student_id = ts.id LIMIT 1) as class_name
       FROM trial_students ts
       JOIN branches b ON ts.branch_id = b.id
@@ -29,13 +29,13 @@ class TrialModel extends BaseModel {
     if (saleId) { sql += ' AND ts.sale_id = ?'; params.push(saleId); }
     if (status) { sql += ' AND ts.status = ?'; params.push(status); }
     if (search) {
-      sql += ' AND (ts.full_name LIKE ? OR ts.code LIKE ? OR ts.parent_phone LIKE ?)';
+      sql += ' AND (ts.full_name ILIKE ? OR ts.code ILIKE ? OR ts.parent_phone ILIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     const countSql = sql.replace(/SELECT .* FROM/, 'SELECT COUNT(*) as total FROM');
     const [countRows] = await this.db.query(countSql, params);
-    const total = countRows[0]?.total || 0;
+    const total = parseInt(countRows[0]?.total || 0);
 
     sql += ' ORDER BY ts.created_at DESC LIMIT ? OFFSET ?';
     params.push(+limit, (+page - 1) * +limit);
@@ -62,9 +62,9 @@ class TrialModel extends BaseModel {
 
   async getStats(saleId = null, branchId = null) {
     let sql = `SELECT COUNT(*) as total,
-      SUM(status = 'active') as active,
-      SUM(status = 'converted') as converted,
-      SUM(status = 'active' AND sessions_attended >= 2) as nearing_limit
+      COUNT(*) FILTER (WHERE status = 'active') as active,
+      COUNT(*) FILTER (WHERE status = 'converted') as converted,
+      COUNT(*) FILTER (WHERE status = 'active' AND sessions_attended >= 2) as nearing_limit
       FROM trial_students WHERE 1=1`;
     const params = [];
     if (branchId) { sql += ' AND branch_id = ?'; params.push(branchId); }

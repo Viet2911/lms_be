@@ -1,4 +1,4 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 
 class StudentModel extends BaseModel {
   constructor() {
@@ -15,7 +15,7 @@ class StudentModel extends BaseModel {
              sub.name as subject_name, l.name as level_name, u.full_name as sale_name,
              p.name as package_name, p.months as package_months,
              cl.name as current_level_name,
-             (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id 
+             (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id
               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name,
              (SELECT cs.class_id FROM class_students cs
               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_id
@@ -42,32 +42,30 @@ class StudentModel extends BaseModel {
     if (subjectId) { sql += ' AND s.subject_id = ?'; params.push(subjectId); }
     if (feeStatus) { sql += ' AND s.fee_status = ?'; params.push(feeStatus); }
 
-    // Lọc theo tháng hết phí
     if (feeEndMonth !== undefined && feeEndMonth !== null && feeEndMonth !== '') {
       const monthsAhead = parseInt(feeEndMonth);
       if (monthsAhead === 0) {
-        // Tháng này
-        sql += ' AND YEAR(s.fee_end_date) = YEAR(CURDATE()) AND MONTH(s.fee_end_date) = MONTH(CURDATE())';
+        sql += ` AND EXTRACT(YEAR FROM s.fee_end_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+                 AND EXTRACT(MONTH FROM s.fee_end_date) = EXTRACT(MONTH FROM CURRENT_DATE)`;
       } else {
-        // X tháng tới (từ tháng này đến tháng X)
-        sql += ' AND s.fee_end_date <= DATE_ADD(LAST_DAY(CURDATE()), INTERVAL ? MONTH)';
-        sql += ' AND s.fee_end_date >= CURDATE()';
+        sql += ` AND s.fee_end_date <= (DATE_TRUNC('month', CURRENT_DATE + INTERVAL '1 month') - INTERVAL '1 day')::date + (? * INTERVAL '1 month')`;
+        sql += ' AND s.fee_end_date >= CURRENT_DATE';
         params.push(monthsAhead);
       }
     }
 
     if (classId) {
-      sql += ' AND s.id IN (SELECT student_id FROM class_students WHERE class_id = ? AND status = "active")';
+      sql += ` AND s.id IN (SELECT student_id FROM class_students WHERE class_id = ? AND status = 'active')`;
       params.push(classId);
     }
     if (search) {
-      sql += ' AND (s.full_name LIKE ? OR s.student_code LIKE ? OR s.parent_phone LIKE ?)';
+      sql += ' AND (s.full_name ILIKE ? OR s.student_code ILIKE ? OR s.parent_phone ILIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     const countSql = `SELECT COUNT(*) as total FROM (${sql}) as sub`;
     const [countRows] = await this.db.query(countSql, params);
-    const total = countRows[0]?.total || 0;
+    const total = parseInt(countRows[0]?.total || 0);
 
     sql += ' ORDER BY s.fee_end_date ASC, s.created_at DESC LIMIT ? OFFSET ?';
     params.push(+limit, (+page - 1) * +limit);
@@ -82,11 +80,10 @@ class StudentModel extends BaseModel {
               sub.name as subject_name, l.name as level_name, u.full_name as sale_name,
               p.name as package_name, p.months as package_months, p.sessions_count as package_sessions,
               cl.name as current_level_name,
-              (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id 
+              (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id
                WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name,
-              (SELECT cs.class_id FROM class_students cs 
+              (SELECT cs.class_id FROM class_students cs
                WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as current_class_id,
-              -- Buổi đã học (finished + active, không tính removed)
               (
                 SELECT COUNT(a.id)
                 FROM class_students cs
@@ -95,7 +92,6 @@ class StudentModel extends BaseModel {
                   AND a.status IN ('present', 'late')
                 WHERE cs.student_id = s.id AND cs.status IN ('finished', 'active')
               ) as attended_sessions,
-              -- Số buổi còn lại
               s.total_sessions - COALESCE((
                 SELECT COUNT(a.id)
                 FROM class_students cs
@@ -119,25 +115,25 @@ class StudentModel extends BaseModel {
 
   async getStats(saleId = null, branchId = null) {
     let sql = `SELECT COUNT(*) as total,
-      SUM(status = 'pending') as pending,
-      SUM(status = 'waiting') as waiting,
-      SUM(status = 'active') as active,
-      SUM(status = 'paused') as paused,
-      SUM(status = 'expired') as expired,
-      SUM(status = 'quit_paid') as quit_paid,
-      SUM(status = 'quit_refund') as quit_refund,
-      SUM(status = 'reserved') as reserved,
-      SUM(status = 'inactive') as inactive,
-      SUM(status = 'graduated') as graduated,
-      SUM(status = 'dropped') as dropped,
-      SUM(fee_status = 'expiring_soon') as expiring_soon,
-      SUM(payment_status = 'pending') as unpaid,
-      SUM(payment_status = 'partial') as partial_paid,
-      SUM(payment_status = 'paid') as fully_paid,
-      SUM(YEAR(fee_end_date) = YEAR(CURDATE()) AND MONTH(fee_end_date) = MONTH(CURDATE())) as expiring_this_month,
-      SUM(fee_end_date BETWEEN CURDATE() AND LAST_DAY(DATE_ADD(CURDATE(), INTERVAL 1 MONTH))) as expiring_next_month,
-      SUM(fee_end_date BETWEEN CURDATE() AND LAST_DAY(DATE_ADD(CURDATE(), INTERVAL 2 MONTH))) as expiring_2_months,
-      SUM(fee_end_date BETWEEN CURDATE() AND LAST_DAY(DATE_ADD(CURDATE(), INTERVAL 3 MONTH))) as expiring_3_months
+      COUNT(*) FILTER (WHERE status = 'pending') as pending,
+      COUNT(*) FILTER (WHERE status = 'waiting') as waiting,
+      COUNT(*) FILTER (WHERE status = 'active') as active,
+      COUNT(*) FILTER (WHERE status = 'paused') as paused,
+      COUNT(*) FILTER (WHERE status = 'expired') as expired,
+      COUNT(*) FILTER (WHERE status = 'quit_paid') as quit_paid,
+      COUNT(*) FILTER (WHERE status = 'quit_refund') as quit_refund,
+      COUNT(*) FILTER (WHERE status = 'reserved') as reserved,
+      COUNT(*) FILTER (WHERE status = 'inactive') as inactive,
+      COUNT(*) FILTER (WHERE status = 'graduated') as graduated,
+      COUNT(*) FILTER (WHERE status = 'dropped') as dropped,
+      COUNT(*) FILTER (WHERE fee_status = 'expiring_soon') as expiring_soon,
+      COUNT(*) FILTER (WHERE payment_status = 'pending') as unpaid,
+      COUNT(*) FILTER (WHERE payment_status = 'partial') as partial_paid,
+      COUNT(*) FILTER (WHERE payment_status = 'paid') as fully_paid,
+      COUNT(*) FILTER (WHERE EXTRACT(YEAR FROM fee_end_date) = EXTRACT(YEAR FROM CURRENT_DATE) AND EXTRACT(MONTH FROM fee_end_date) = EXTRACT(MONTH FROM CURRENT_DATE)) as expiring_this_month,
+      COUNT(*) FILTER (WHERE fee_end_date BETWEEN CURRENT_DATE AND (DATE_TRUNC('month', CURRENT_DATE + INTERVAL '2 months') - INTERVAL '1 day')::date) as expiring_next_month,
+      COUNT(*) FILTER (WHERE fee_end_date BETWEEN CURRENT_DATE AND (DATE_TRUNC('month', CURRENT_DATE + INTERVAL '3 months') - INTERVAL '1 day')::date) as expiring_2_months,
+      COUNT(*) FILTER (WHERE fee_end_date BETWEEN CURRENT_DATE AND (DATE_TRUNC('month', CURRENT_DATE + INTERVAL '4 months') - INTERVAL '1 day')::date) as expiring_3_months
       FROM students WHERE 1=1`;
     const params = [];
     if (branchId) { sql += ' AND branch_id = ?'; params.push(branchId); }
@@ -146,14 +142,12 @@ class StudentModel extends BaseModel {
     return rows[0];
   }
 
-  // Thay đổi trạng thái học sinh
   async changeStatus(studentId, newStatus, data = {}) {
     const student = await this.findById(studentId);
     if (!student) throw new Error('Học sinh không tồn tại');
 
     const oldStatus = student.status;
 
-    // Update student status
     let updateSql = 'UPDATE students SET status = ?, status_changed_at = NOW()';
     const params = [newStatus];
 
@@ -163,7 +157,7 @@ class StudentModel extends BaseModel {
     }
 
     if (newStatus === 'reserved' && data.reserveMonths) {
-      updateSql += ', reserve_until = DATE_ADD(NOW(), INTERVAL ? MONTH)';
+      updateSql += `, reserve_until = NOW() + (? * INTERVAL '1 month')`;
       params.push(data.reserveMonths);
     }
 
@@ -182,7 +176,6 @@ class StudentModel extends BaseModel {
 
     await this.db.query(updateSql, params);
 
-    // Log status change
     await this.db.query(`
       INSERT INTO student_status_logs (student_id, old_status, new_status, reason, changed_by, changed_at)
       VALUES (?, ?, ?, ?, ?, NOW())
@@ -191,14 +184,13 @@ class StudentModel extends BaseModel {
     return { oldStatus, newStatus };
   }
 
-  // Lấy học sinh sắp hết phí
   async getExpiringStudents(branchId = null, limit = 20) {
     let sql = `
       SELECT s.id, s.full_name, s.student_code, s.parent_phone,
              s.remaining_sessions, s.fee_status, s.package_end_date,
              b.name as branch_name, b.code as branch_code,
              p.name as package_name,
-             (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id 
+             (SELECT c.class_name FROM class_students cs JOIN classes c ON cs.class_id = c.id
               WHERE cs.student_id = s.id AND cs.status = 'active' LIMIT 1) as class_name
       FROM students s
       JOIN branches b ON s.branch_id = b.id
@@ -219,14 +211,13 @@ class StudentModel extends BaseModel {
     return rows;
   }
 
-  // Cập nhật số buổi sau khi điểm danh
   async decrementSession(studentId) {
     await this.db.query(`
-      UPDATE students SET 
+      UPDATE students SET
         used_sessions = used_sessions + 1,
         remaining_sessions = remaining_sessions - 1,
         level_sessions_completed = level_sessions_completed + 1,
-        fee_status = CASE 
+        fee_status = CASE
           WHEN remaining_sessions - 1 <= 0 THEN 'expired'
           WHEN remaining_sessions - 1 <= 4 THEN 'expiring_soon'
           ELSE 'active'
@@ -234,57 +225,49 @@ class StudentModel extends BaseModel {
       WHERE id = ? AND remaining_sessions > 0
     `, [studentId]);
 
-    // Kiểm tra hoàn thành level
     const student = await this.findById(studentId);
     if (student && student.level_sessions_completed >= 15) {
       await this.completeLevel(studentId);
     }
   }
 
-  // Hoàn thành level hiện tại
   async completeLevel(studentId) {
     const student = await this.findByIdWithRelations(studentId);
     if (!student || !student.current_level_id) return;
 
-    // Lưu lịch sử
     await this.db.query(`
-      UPDATE student_level_history SET 
-        completed_at = CURDATE(), 
+      UPDATE student_level_history SET
+        completed_at = CURRENT_DATE,
         sessions_completed = ?,
         status = 'completed'
       WHERE student_id = ? AND level_id = ? AND status = 'in_progress'
     `, [student.level_sessions_completed, studentId, student.current_level_id]);
 
-    // Tìm level tiếp theo
     const [nextLevel] = await this.db.query(`
-      SELECT id FROM levels 
+      SELECT id FROM levels
       WHERE order_index > (SELECT order_index FROM levels WHERE id = ?)
       ORDER BY order_index ASC LIMIT 1
     `, [student.current_level_id]);
 
     if (nextLevel.length > 0) {
-      // Chuyển sang level mới
       await this.db.query(`
-        UPDATE students SET 
+        UPDATE students SET
           current_level_id = ?,
           level_sessions_completed = 0
         WHERE id = ?
       `, [nextLevel[0].id, studentId]);
 
-      // Tạo lịch sử level mới
       await this.db.query(`
         INSERT INTO student_level_history (student_id, level_id, started_at)
-        VALUES (?, ?, CURDATE())
+        VALUES (?, ?, CURRENT_DATE)
       `, [studentId, nextLevel[0].id]);
     }
   }
 
-  // Gia hạn học phí
   async renewPackage(studentId, packageId, branchId, data) {
     const student = await this.findById(studentId);
     if (!student) throw new Error('Học viên không tồn tại');
 
-    // Lấy giá gói
     const [priceRows] = await this.db.query(`
       SELECT COALESCE(bp.price, p.base_price) as price, p.sessions_count, p.months
       FROM packages p
@@ -300,14 +283,13 @@ class StudentModel extends BaseModel {
     const finalPrice = pkg.price - (data.discount_amount || 0);
     const remainingAmount = finalPrice - (data.deposit_amount || 0);
 
-    // Tạo renewal record
-    const [result] = await this.db.query(`
-      INSERT INTO student_renewals 
-        (student_id, package_id, branch_id, ec_id, sessions_added, 
-         scholarship_months, scholarship_sessions, package_price, 
-         discount_amount, final_price, deposit_amount, paid_amount, 
+    const [renewalRows] = await this.db.query(`
+      INSERT INTO student_renewals
+        (student_id, package_id, branch_id, ec_id, sessions_added,
+         scholarship_months, scholarship_sessions, package_price,
+         discount_amount, final_price, deposit_amount, paid_amount,
          remaining_amount, status, start_date, end_date, note)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
     `, [
       studentId, packageId, branchId, data.ec_id || null,
       pkg.sessions_count, data.scholarship_months || 0, scholarshipSessions,
@@ -319,13 +301,14 @@ class StudentModel extends BaseModel {
       data.note || null
     ]);
 
-    // Cập nhật student nếu đã thanh toán đủ
+    const renewalId = renewalRows[0]?.id;
+
     if (data.paid_amount >= finalPrice) {
       await this.db.query(`
-        UPDATE students SET 
+        UPDATE students SET
           package_id = ?,
           package_start_date = ?,
-          package_end_date = DATE_ADD(?, INTERVAL ? MONTH),
+          package_end_date = ? + (? * INTERVAL '1 month'),
           total_sessions = total_sessions + ?,
           scholarship_months = scholarship_months + ?,
           scholarship_sessions = scholarship_sessions + ?,
@@ -340,20 +323,20 @@ class StudentModel extends BaseModel {
         totalSessionsToAdd, finalPrice, studentId
       ]);
 
-      // Cập nhật renewal status
       await this.db.query(
-        'UPDATE student_renewals SET status = ?, payment_date = CURDATE() WHERE id = ?',
-        ['paid', result.insertId]
+        'UPDATE student_renewals SET status = ?, payment_date = CURRENT_DATE WHERE id = ?',
+        ['paid', renewalId]
       );
     }
 
-    return { renewalId: result.insertId, totalSessionsAdded: totalSessionsToAdd };
+    return { renewalId, totalSessionsAdded: totalSessionsToAdd };
   }
 
   async addToClass(studentId, classId) {
     await this.db.query(
-      'INSERT INTO class_students (student_id, class_id, status) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE status = ?',
-      [studentId, classId, 'active', 'active']
+      `INSERT INTO class_students (student_id, class_id, status) VALUES (?, ?, 'active')
+       ON CONFLICT (student_id, class_id) DO UPDATE SET status = 'active'`,
+      [studentId, classId]
     );
   }
 
@@ -372,7 +355,6 @@ class StudentModel extends BaseModel {
     return rows;
   }
 
-  // Lấy lịch sử học phần của học sinh
   async getLevelHistory(studentId) {
     const [rows] = await this.db.query(`
       SELECT slh.*, l.name as level_name
@@ -384,7 +366,6 @@ class StudentModel extends BaseModel {
     return rows;
   }
 
-  // Lấy lịch sử gia hạn của học sinh
   async getRenewalHistory(studentId) {
     const [rows] = await this.db.query(`
       SELECT sr.*, p.name as package_name, u.full_name as ec_name
@@ -397,37 +378,26 @@ class StudentModel extends BaseModel {
     return rows;
   }
 
-  // Xác nhận đã nhận thanh toán - cập nhật actual_revenue
   async confirmPayment(studentId, { amount, paymentMethod, proofUrl, note, confirmedBy }) {
     const conn = await this.db.getConnection();
     try {
       await conn.beginTransaction();
 
-      // Lấy thông tin học sinh hiện tại
       const [students] = await conn.query(
         'SELECT id, paid_amount, actual_revenue, tuition_fee, fee_total, fee_status, payment_status, branch_id, sale_id FROM students WHERE id = ?',
         [studentId]
       );
 
-      if (!students.length) {
-        throw new Error('Không tìm thấy học sinh');
-      }
+      if (!students.length) throw new Error('Không tìm thấy học sinh');
 
       const student = students[0];
       const paymentAmount = parseFloat(amount) || 0;
-
-      // Cập nhật paid_amount
       const currentPaid = parseFloat(student.paid_amount) || 0;
       const newPaidAmount = currentPaid + paymentAmount;
-
-      // Cập nhật actual_revenue (để tương thích)
       const currentRevenue = parseFloat(student.actual_revenue) || 0;
       const newActualRevenue = currentRevenue + paymentAmount;
-
-      // Lấy tổng học phí
       const feeTotal = parseFloat(student.fee_total) || parseFloat(student.tuition_fee) || 0;
 
-      // Xác định trạng thái thanh toán mới
       let newPaymentStatus = 'partial';
       let newFeeStatus = 'partial';
       if (newPaidAmount >= feeTotal && feeTotal > 0) {
@@ -438,19 +408,14 @@ class StudentModel extends BaseModel {
         newFeeStatus = 'pending';
       }
 
-      // Cập nhật cả paid_amount và actual_revenue
-      const [updateResult] = await conn.query(`
-        UPDATE students 
+      const [updateRows] = await conn.query(`
+        UPDATE students
         SET paid_amount = ?, actual_revenue = ?, payment_status = ?, fee_status = ?, updated_at = NOW()
         WHERE id = ?
       `, [newPaidAmount, newActualRevenue, newPaymentStatus, newFeeStatus, studentId]);
 
-      // Kiểm tra update có thành công không
-      if (updateResult.affectedRows === 0) {
-        throw new Error('Không thể cập nhật thông tin học sinh');
-      }
+      if (updateRows.affectedRows === 0) throw new Error('Không thể cập nhật thông tin học sinh');
 
-      // Ghi nhận vào revenues (doanh thu)
       await conn.query(`
         INSERT INTO revenues (branch_id, student_id, ec_id, amount, type, payment_method, proof_url, note, created_at)
         VALUES (?, ?, ?, ?, 'tuition', ?, ?, ?, NOW())

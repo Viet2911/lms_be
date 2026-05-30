@@ -1,4 +1,4 @@
-import PromotionModel from '../models/PromotionModel.js';
+﻿import PromotionModel from '../models/PromotionModel.js';
 
 // ==================== CHƯƠNG TRÌNH KM ====================
 
@@ -286,7 +286,7 @@ export const getConvertData = async (req, res, next) => {
         const [packages] = await PromotionModel.db.query(
             `SELECT id, code, name, months, sessions_count as total_sessions, base_price as price, 
               default_scholarship_months, is_active
-       FROM packages WHERE is_active = 1 ORDER BY months ASC`
+       FROM packages WHERE is_active = true ORDER BY months ASC`
         );
 
         res.json({

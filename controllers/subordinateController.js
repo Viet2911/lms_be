@@ -1,4 +1,4 @@
-// Subordinate Controller - Quản lý nhân sự phụ thuộc
+﻿// Subordinate Controller - Quản lý nhân sự phụ thuộc
 import pool from '../config/database.js';
 
 // Get my subordinates
@@ -100,10 +100,10 @@ export const getSubordinateRevenue = async (req, res, next) => {
         SUM(CASE WHEN r.type = 'other' THEN r.amount ELSE 0 END) as other_revenue
       FROM users u
       LEFT JOIN revenues r ON u.id = r.created_by 
-        AND r.created_at >= ? AND r.created_at <= DATE_ADD(?, INTERVAL 1 DAY)
-      WHERE u.is_active = 1 ${userFilter}
+        AND r.created_at >= ? AND r.created_at <= ? + INTERVAL '1 day'
+      WHERE u.is_active = true ${userFilter}
       GROUP BY u.id
-      HAVING total_transactions > 0 OR u.manager_id = ?
+      HAVING COUNT(r.id) > 0 OR u.manager_id = ?
       ORDER BY total_revenue DESC
     `, [...params, req.user.id]);
 
@@ -144,7 +144,7 @@ export const getSubordinateStats = async (req, res, next) => {
             dateFrom = `${today.getFullYear()}-01-01`;
         }
 
-        let userFilter = 'WHERE u.is_active = 1';
+        let userFilter = 'WHERE u.is_active = true';
         const params = [dateFrom, dateFrom, dateFrom];
 
         if (!['GDV', 'ADMIN'].includes(req.user.role)) {
@@ -203,7 +203,7 @@ export const getAvailableManagers = async (req, res, next) => {
         let sql = `
       SELECT id, full_name, role, employee_code
       FROM users 
-      WHERE is_active = 1 AND role IN ('GDV', 'ADMIN', 'CHU', 'QLCS', 'OM', 'CM', 'HOEC')
+      WHERE is_active = true AND role IN ('GDV', 'ADMIN', 'CHU', 'QLCS', 'OM', 'CM', 'HOEC')
     `;
         const params = [];
 

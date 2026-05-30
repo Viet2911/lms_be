@@ -1,4 +1,4 @@
-import LeadModel from '../models/LeadModel.js';
+﻿import LeadModel from '../models/LeadModel.js';
 import StudentModel from '../models/StudentModel.js';
 import PromotionModel from '../models/PromotionModel.js';
 import telegramService from '../services/telegramService.js';
@@ -586,11 +586,11 @@ export const getTrialReport = async (req, res, next) => {
 
     // Date filter - by scheduled_date hoặc updated_at (ngày đến)
     if (start_date) {
-      sql += ' AND (l.scheduled_date >= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) >= ?))';
+      sql += ` AND (l.scheduled_date >= ? OR (l.status IN ('attended', 'waiting', 'converted') AND l.updated_at::date >= ?))`;
       params.push(start_date, start_date);
     }
     if (end_date) {
-      sql += ' AND (l.scheduled_date <= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) <= ?))';
+      sql += ` AND (l.scheduled_date <= ? OR (l.status IN ('attended', 'waiting', 'converted') AND l.updated_at::date <= ?))`;
       params.push(end_date, end_date);
     }
     if (effectiveBranchId) {
@@ -610,14 +610,14 @@ export const getTrialReport = async (req, res, next) => {
       params.push(status);
     }
     if (search) {
-      sql += ' AND (l.student_name LIKE ? OR l.customer_name LIKE ? OR l.customer_phone LIKE ?)';
+      sql += ' AND (l.student_name ILIKE ? OR l.customer_name ILIKE ? OR l.customer_phone ILIKE ?)';
       params.push(`%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     // Count total
     const countSql = sql.replace(/SELECT[\s\S]*?FROM/, 'SELECT COUNT(*) as total FROM');
     const [countResult] = await LeadModel.db.query(countSql, params);
-    const total = countResult[0]?.total || 0;
+    const total = parseInt(countResult[0]?.total || 0);
 
     // Add pagination
     sql += ' ORDER BY COALESCE(l.updated_at, l.scheduled_date) DESC LIMIT ? OFFSET ?';
@@ -627,7 +627,7 @@ export const getTrialReport = async (req, res, next) => {
 
     // Summary query
     let summarySql = `
-      SELECT 
+      SELECT
         COUNT(*) as total_scheduled,
         COUNT(CASE WHEN status IN ('attended', 'waiting', 'converted') THEN 1 END) as attended,
         COUNT(CASE WHEN status = 'converted' THEN 1 END) as converted,
@@ -638,11 +638,11 @@ export const getTrialReport = async (req, res, next) => {
     const summaryParams = [];
 
     if (start_date) {
-      summarySql += ' AND (scheduled_date >= ? OR (status IN ("attended", "waiting", "converted") AND DATE(updated_at) >= ?))';
+      summarySql += ` AND (scheduled_date >= ? OR (status IN ('attended', 'waiting', 'converted') AND updated_at::date >= ?))`;
       summaryParams.push(start_date, start_date);
     }
     if (end_date) {
-      summarySql += ' AND (scheduled_date <= ? OR (status IN ("attended", "waiting", "converted") AND DATE(updated_at) <= ?))';
+      summarySql += ` AND (scheduled_date <= ? OR (status IN ('attended', 'waiting', 'converted') AND updated_at::date <= ?))`;
       summaryParams.push(end_date, end_date);
     }
     if (effectiveBranchId) {
@@ -684,9 +684,9 @@ export const exportTrialReport = async (req, res, next) => {
         l.customer_phone as 'SĐT',
         l.source as 'Nguồn',
         b.name as 'Cơ sở',
-        DATE_FORMAT(l.scheduled_date, '%d/%m/%Y') as 'Ngày hẹn',
-        CASE WHEN l.status IN ('attended', 'waiting', 'converted') 
-          THEN DATE_FORMAT(l.updated_at, '%d/%m/%Y') ELSE '' END as 'Ngày đến',
+        TO_CHAR(l.scheduled_date, 'DD/MM/YYYY') as "Ngày hẹn",
+        CASE WHEN l.status IN ('attended', 'waiting', 'converted')
+          THEN TO_CHAR(l.updated_at, 'DD/MM/YYYY') ELSE '' END as "Ngày đến",
         l.trial_sessions_attended as 'Số buổi TN',
         CASE l.status 
           WHEN 'attended' THEN 'Đã đến'
@@ -705,11 +705,11 @@ export const exportTrialReport = async (req, res, next) => {
     const params = [];
 
     if (start_date) {
-      sql += ' AND (l.scheduled_date >= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) >= ?))';
+      sql += ` AND (l.scheduled_date >= ? OR (l.status IN ('attended', 'waiting', 'converted') AND l.updated_at::date >= ?))`;
       params.push(start_date, start_date);
     }
     if (end_date) {
-      sql += ' AND (l.scheduled_date <= ? OR (l.status IN ("attended", "waiting", "converted") AND DATE(l.updated_at) <= ?))';
+      sql += ` AND (l.scheduled_date <= ? OR (l.status IN ('attended', 'waiting', 'converted') AND l.updated_at::date <= ?))`;
       params.push(end_date, end_date);
     }
     if (effectiveBranchId) {
@@ -878,7 +878,7 @@ export const assignLead = async (req, res, next) => {
     const lead = await LeadModel.findById(id);
     if (!lead) return res.status(404).json({ success: false, message: 'Không tìm thấy lead' });
 
-    await db.execute('UPDATE leads SET sale_id = ?, updated_at = NOW() WHERE id = ?', [saleId, id]);
+    await db.query('UPDATE leads SET sale_id = ?, updated_at = NOW() WHERE id = ?', [saleId, id]);
     res.json({ success: true, message: 'Đã chuyển lead thành công' });
   } catch (error) { next(error); }
 };
@@ -890,10 +890,9 @@ export const bulkAssignLeads = async (req, res, next) => {
     if (!leadIds?.length || !saleId) {
       return res.status(400).json({ success: false, message: 'Thiếu leadIds hoặc saleId' });
     }
-    const placeholders = leadIds.map(() => '?').join(',');
-    await db.execute(
-      `UPDATE leads SET sale_id = ?, updated_at = NOW() WHERE id IN (${placeholders})`,
-      [saleId, ...leadIds]
+    await db.query(
+      `UPDATE leads SET sale_id = ?, updated_at = NOW() WHERE id = ANY(?)`,
+      [saleId, leadIds]
     );
     res.json({ success: true, message: `Đã chuyển ${leadIds.length} lead thành công` });
   } catch (error) { next(error); }
@@ -937,7 +936,7 @@ export const importLeads = async (req, res, next) => {
       if (existing) { skipped++; continue; }
 
       const code = await LeadModel.generateCode(branchCode);
-      await db.execute(
+      await db.query(
         `INSERT INTO leads (branch_id, code, customer_name, customer_phone, student_name, source, note, sale_id, status, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', NOW(), NOW())`,
         [branchId, code, r.customerName, r.customerPhone, r.studentName, r.source, r.note, r.saleId]

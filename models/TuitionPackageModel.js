@@ -1,4 +1,4 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 
 class TuitionPackageModel extends BaseModel {
   constructor() {
@@ -12,7 +12,7 @@ class TuitionPackageModel extends BaseModel {
              COALESCE(tp.default_scholarship_months, 0) as default_scholarship_months
       FROM tuition_packages tp
       LEFT JOIN subjects s ON tp.subject_id = s.id
-      WHERE tp.is_active = 1
+      WHERE tp.is_active = true
     `;
     const params = [];
 
@@ -40,11 +40,11 @@ class TuitionPackageModel extends BaseModel {
 
   // Tạo gói mới
   async create(data) {
-    const [result] = await this.db.query(`
+    const [rows] = await this.db.query(`
       INSERT INTO tuition_packages (code, name, subject_id, duration_months, sessions_per_week, price, description, default_scholarship_months)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
     `, [data.code, data.name, data.subject_id || null, data.duration_months, data.sessions_per_week, data.price, data.description, data.default_scholarship_months || 0]);
-    return result;
+    return { id: rows[0]?.id, ...data };
   }
 
   // Cập nhật gói
@@ -64,7 +64,7 @@ class TuitionPackageModel extends BaseModel {
   // Xóa gói (soft delete)
   async deletePackage(id) {
     const [result] = await this.db.query(`
-      UPDATE tuition_packages SET is_active = 0 WHERE id = ?
+      UPDATE tuition_packages SET is_active = false WHERE id = ?
     `, [id]);
     return result;
   }

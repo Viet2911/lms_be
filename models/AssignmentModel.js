@@ -8,7 +8,7 @@ class AssignmentModel extends BaseModel {
   async findAllWithRelations({ classId, sessionId, status, teacherId, cmId, branchId, page = 1, limit = 20 } = {}) {
     let sql = `
       SELECT a.*, c.class_name, c.branch_id, b.name as branch_name, b.code as branch_code,
-             s.session_number, DATE_FORMAT(s.session_date, '%Y-%m-%d') as session_date,
+             s.session_number, TO_CHAR(s.session_date, 'YYYY-MM-DD') as session_date,
              u.full_name as created_by_name, f.file_url,
              (SELECT COUNT(*) FROM assignment_submissions WHERE assignment_id = a.id) as submission_count,
              (SELECT COUNT(*) FROM assignment_submissions WHERE assignment_id = a.id AND status = 'graded') as graded_count
@@ -31,7 +31,7 @@ class AssignmentModel extends BaseModel {
 
     const countSql = sql.replace(/SELECT .* FROM/, 'SELECT COUNT(*) as total FROM');
     const [countRows] = await this.db.query(countSql, params);
-    const total = countRows[0]?.total || 0;
+    const total = parseInt(countRows[0]?.total || 0);
 
     sql += ' ORDER BY a.created_at DESC LIMIT ? OFFSET ?';
     params.push(+limit, (+page - 1) * +limit);
@@ -43,7 +43,7 @@ class AssignmentModel extends BaseModel {
   async findByIdWithRelations(id) {
     const [rows] = await this.db.query(
       `SELECT a.*, c.class_name, c.branch_id, b.name as branch_name, b.code as branch_code,
-              s.session_number, DATE_FORMAT(s.session_date, '%Y-%m-%d') as session_date,
+              s.session_number, TO_CHAR(s.session_date, 'YYYY-MM-DD') as session_date,
               u.full_name as created_by_name, f.file_url, f.original_name as file_name
        FROM assignments a
        JOIN classes c ON a.class_id = c.id
@@ -71,7 +71,7 @@ class AssignmentModel extends BaseModel {
 
   async gradeSubmission(submissionId, { grade, feedback, gradedBy }) {
     await this.db.query(
-      'UPDATE assignment_submissions SET grade = ?, feedback = ?, graded_at = NOW(), graded_by = ?, status = "graded" WHERE id = ?',
+      `UPDATE assignment_submissions SET grade = ?, feedback = ?, graded_at = NOW(), graded_by = ?, status = 'graded' WHERE id = ?`,
       [grade, feedback, gradedBy, submissionId]
     );
     return { success: true };

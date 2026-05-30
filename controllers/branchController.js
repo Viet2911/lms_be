@@ -1,4 +1,4 @@
-import BranchModel from '../models/BranchModel.js';
+﻿import BranchModel from '../models/BranchModel.js';
 
 // GET /api/branches
 export const getAll = async (req, res) => {
@@ -87,7 +87,7 @@ export const update = async (req, res) => {
 // DELETE /api/branches/:id (Admin only)
 export const remove = async (req, res) => {
   try {
-    // Soft delete - set is_active = 0
+    // Soft delete - set is_active = false
     await BranchModel.update(req.params.id, { is_active: 0 });
     res.json({ success: true, message: 'Đã vô hiệu hóa cơ sở' });
   } catch (error) {

@@ -1,4 +1,4 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 
 class BranchModel extends BaseModel {
   constructor() {
@@ -7,7 +7,7 @@ class BranchModel extends BaseModel {
 
   async findAllActive() {
     const [rows] = await this.db.query(
-      'SELECT * FROM branches WHERE is_active = 1 ORDER BY id'
+      'SELECT * FROM branches WHERE is_active = true ORDER BY id'
     );
     return rows;
   }
@@ -17,7 +17,7 @@ class BranchModel extends BaseModel {
       `SELECT b.*, ub.is_primary
        FROM branches b
        JOIN user_branches ub ON b.id = ub.branch_id
-       WHERE ub.user_id = ? AND b.is_active = 1
+       WHERE ub.user_id = ? AND b.is_active = true
        ORDER BY ub.is_primary DESC, b.name`,
       [userId]
     );
@@ -36,7 +36,7 @@ class BranchModel extends BaseModel {
       for (const branchId of branchIds) {
         await conn.query(
           'INSERT INTO user_branches (user_id, branch_id, is_primary) VALUES (?, ?, ?)',
-          [userId, branchId, branchId === primaryBranchId ? 1 : 0]
+          [userId, branchId, branchId === primaryBranchId]
         );
       }
       

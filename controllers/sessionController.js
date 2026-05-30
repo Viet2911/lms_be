@@ -1,5 +1,6 @@
-import SessionModel from '../models/SessionModel.js';
+﻿import SessionModel from '../models/SessionModel.js';
 import { getBranchFilter } from '../utils/branchHelper.js';
+import db from '../config/database.js';
 
 export const getAll = async (req, res, next) => {
   try {
@@ -108,11 +109,11 @@ export const saveFeedback = async (req, res, next) => {
     await SessionModel.db.query(`
       INSERT INTO session_feedbacks (session_id, student_id, rating, feedback, homework_assigned, parent_notified, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        rating = VALUES(rating),
-        feedback = VALUES(feedback),
-        homework_assigned = VALUES(homework_assigned),
-        parent_notified = VALUES(parent_notified),
+      ON CONFLICT (session_id, student_id) DO UPDATE SET
+        rating = EXCLUDED.rating,
+        feedback = EXCLUDED.feedback,
+        homework_assigned = EXCLUDED.homework_assigned,
+        parent_notified = EXCLUDED.parent_notified,
         updated_at = NOW()
     `, [id, student_id, rating || null, feedback || null, homework_assigned || false, parent_notified || false, req.user.id]);
 
@@ -251,7 +252,7 @@ export const saveAttendance = async (req, res) => {
       }
     }
 
-    await connection.query(`UPDATE sessions SET status = 'completed', attendance_submitted = 1 WHERE id = ?`, [sessionId]);
+    await connection.query(`UPDATE sessions SET status = 'completed', attendance_submitted = true WHERE id = ?`, [sessionId]);
 
     await connection.commit();
     res.json({ success: true, message: 'Luu diem danh thanh cong' });

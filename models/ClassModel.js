@@ -1,4 +1,4 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 
 class ClassModel extends BaseModel {
   constructor() {
@@ -31,13 +31,13 @@ class ClassModel extends BaseModel {
     if (teacherId) { sql += ' AND c.teacher_id = ?'; params.push(teacherId); }
     if (cmId) { sql += ' AND c.cm_id = ?'; params.push(cmId); }
     if (search) {
-      sql += ' AND (c.class_name LIKE ? OR c.class_code LIKE ?)';
+      sql += ' AND (c.class_name ILIKE ? OR c.class_code ILIKE ?)';
       params.push(`%${search}%`, `%${search}%`);
     }
 
     const countSql = sql.replace(/SELECT .* FROM/, 'SELECT COUNT(*) as total FROM');
     const [countRows] = await this.db.query(countSql, params);
-    const total = countRows[0]?.total || 0;
+    const total = parseInt(countRows[0]?.total || 0);
 
     sql += ' ORDER BY c.created_at DESC LIMIT ? OFFSET ?';
     params.push(+limit, (+page - 1) * +limit);
@@ -66,8 +66,8 @@ class ClassModel extends BaseModel {
 
   async getStudents(classId) {
     const [rows] = await this.db.query(
-      `SELECT 
-         s.*, 
+      `SELECT
+         s.*,
          cs.enrolled_at,
          COALESCE(att.ontime_count, 0) as ontime_count,
          COALESCE(att.late_count, 0) as late_count,
@@ -76,7 +76,7 @@ class ClassModel extends BaseModel {
        FROM students s
        JOIN class_students cs ON s.id = cs.student_id
        LEFT JOIN (
-         SELECT 
+         SELECT
            a.student_id,
            SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) as ontime_count,
            SUM(CASE WHEN a.status = 'late' THEN 1 ELSE 0 END) as late_count,
@@ -100,21 +100,19 @@ class ClassModel extends BaseModel {
       [classId, studentId]
     );
     if (existing.length > 0) {
-      // Reactivate if removed
       await this.db.query(
-        'UPDATE class_students SET status = "active" WHERE class_id = ? AND student_id = ?',
+        `UPDATE class_students SET status = 'active' WHERE class_id = ? AND student_id = ?`,
         [classId, studentId]
       );
     } else {
       await this.db.query(
-        'INSERT INTO class_students (class_id, student_id, status) VALUES (?, ?, "active")',
+        `INSERT INTO class_students (class_id, student_id, status) VALUES (?, ?, 'active')`,
         [classId, studentId]
       );
     }
 
-    // Update student status to active
     await this.db.query(
-      'UPDATE students SET status = "active" WHERE id = ? AND status IN ("waiting", "pending")',
+      `UPDATE students SET status = 'active' WHERE id = ? AND status IN ('waiting', 'pending')`,
       [studentId]
     );
 
@@ -123,28 +121,25 @@ class ClassModel extends BaseModel {
 
   async removeStudent(classId, studentId) {
     await this.db.query(
-      'UPDATE class_students SET status = "removed" WHERE class_id = ? AND student_id = ?',
+      `UPDATE class_students SET status = 'removed' WHERE class_id = ? AND student_id = ?`,
       [classId, studentId]
     );
     return { success: true };
   }
 
-  // Chuyển học sinh sang lớp khác
-  // Lớp cũ sẽ được đánh dấu 'removed' - KHÔNG tính buổi đã học ở lớp cũ
   async transferStudent(fromClassId, toClassId, studentId) {
     const conn = await this.db.getConnection();
     try {
       await conn.beginTransaction();
 
-      // Đánh dấu lớp cũ là 'removed' (không tính buổi)
       await conn.query(
-        'UPDATE class_students SET status = "removed" WHERE class_id = ? AND student_id = ? AND status = "active"',
+        `UPDATE class_students SET status = 'removed' WHERE class_id = ? AND student_id = ? AND status = 'active'`,
         [fromClassId, studentId]
       );
 
-      // Thêm vào lớp mới
       await conn.query(
-        'INSERT INTO class_students (class_id, student_id, status, enrolled_at) VALUES (?, ?, "active", NOW()) ON DUPLICATE KEY UPDATE status = "active", enrolled_at = NOW()',
+        `INSERT INTO class_students (class_id, student_id, status, enrolled_at) VALUES (?, ?, 'active', NOW())
+         ON CONFLICT (class_id, student_id) DO UPDATE SET status = 'active', enrolled_at = NOW()`,
         [toClassId, studentId]
       );
 
@@ -158,18 +153,16 @@ class ClassModel extends BaseModel {
     }
   }
 
-  // Hoàn thành học ở lớp (khi lên level hoặc hoàn thành khóa)
-  // Lớp sẽ được đánh dấu 'finished' - TÍNH buổi đã học
   async finishStudentClass(classId, studentId) {
     await this.db.query(
-      'UPDATE class_students SET status = "finished" WHERE class_id = ? AND student_id = ? AND status = "active"',
+      `UPDATE class_students SET status = 'finished' WHERE class_id = ? AND student_id = ? AND status = 'active'`,
       [classId, studentId]
     );
     return { success: true };
   }
 
   async getStats(branchId = null) {
-    let sql = 'SELECT COUNT(*) as total, SUM(status = \'active\') as active FROM classes WHERE 1=1';
+    let sql = `SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = 'active') as active FROM classes WHERE 1=1`;
     const params = [];
     if (branchId) { sql += ' AND branch_id = ?'; params.push(branchId); }
     const [rows] = await this.db.query(sql, params);

@@ -1,4 +1,4 @@
-import db from '../config/database.js';
+﻿import db from '../config/database.js';
 
 class BaseModel {
   constructor(tableName) {
@@ -12,7 +12,7 @@ class BaseModel {
 
     const countSql = `SELECT COUNT(*) as total FROM ${this.table} ${clause}`;
     const [countRows] = await this.db.query(countSql, params);
-    const total = countRows[0]?.total || 0;
+    const total = parseInt(countRows[0]?.total || 0);
 
     const sql = `SELECT ${select} FROM ${this.table} ${clause} ORDER BY ${orderBy} LIMIT ? OFFSET ?`;
     const [rows] = await this.db.query(sql, [...params, +limit, +offset]);
@@ -35,12 +35,25 @@ class BaseModel {
   }
 
   async create(data) {
-    const [result] = await this.db.query(`INSERT INTO ${this.table} SET ?`, [data]);
-    return { id: result.insertId, ...data };
+    const keys = Object.keys(data);
+    const values = Object.values(data);
+    const cols = keys.join(', ');
+    const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+    const [rows] = await this.db.query(
+      `INSERT INTO ${this.table} (${cols}) VALUES (${placeholders}) RETURNING id`,
+      values
+    );
+    return { id: rows[0]?.id, ...data };
   }
 
   async update(id, data) {
-    await this.db.query(`UPDATE ${this.table} SET ? WHERE id = ?`, [data, id]);
+    const keys = Object.keys(data);
+    const values = Object.values(data);
+    const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+    await this.db.query(
+      `UPDATE ${this.table} SET ${setClause} WHERE id = $${keys.length + 1}`,
+      [...values, id]
+    );
     return this.findById(id);
   }
 
@@ -52,7 +65,7 @@ class BaseModel {
   async count(where = {}) {
     const { clause, params } = this.buildWhere(where);
     const [rows] = await this.db.query(`SELECT COUNT(*) as total FROM ${this.table} ${clause}`, params);
-    return rows[0]?.total || 0;
+    return parseInt(rows[0]?.total || 0);
   }
 
   async query(sql, params = []) {
@@ -69,8 +82,8 @@ class BaseModel {
       if (value === null) {
         conditions.push(`${key} IS NULL`);
       } else if (typeof value === 'object') {
-        if (value.like) { conditions.push(`${key} LIKE ?`); params.push(`%${value.like}%`); }
-        else if (value.in) { conditions.push(`${key} IN (?)`); params.push(value.in); }
+        if (value.like) { conditions.push(`${key} ILIKE ?`); params.push(`%${value.like}%`); }
+        else if (value.in) { conditions.push(`${key} = ANY(?)`); params.push(value.in); }
         else if (value.gte) { conditions.push(`${key} >= ?`); params.push(value.gte); }
         else if (value.lte) { conditions.push(`${key} <= ?`); params.push(value.lte); }
         else if (value.gt) { conditions.push(`${key} > ?`); params.push(value.gt); }

@@ -1,4 +1,4 @@
-import db from '../config/database.js';
+﻿import db from '../config/database.js';
 
 class CommonModel {
   constructor() {
@@ -8,7 +8,7 @@ class CommonModel {
   // ==================== SUBJECTS ====================
   async getSubjects(includeInactive = false) {
     let sql = 'SELECT * FROM subjects';
-    if (!includeInactive) sql += ' WHERE is_active = 1';
+    if (!includeInactive) sql += ' WHERE is_active = true';
     sql += ' ORDER BY name';
     const [rows] = await this.db.query(sql);
     return rows;
@@ -25,8 +25,12 @@ class CommonModel {
   }
 
   async createSubject(data) {
-    const [result] = await this.db.query('INSERT INTO subjects SET ?', [data]);
-    return { id: result.insertId, ...data };
+    const keys = Object.keys(data);
+    const vals = Object.values(data);
+    const cols = keys.join(', ');
+    const phs = keys.map((_, i) => `$${i + 1}`).join(', ');
+    const [rows] = await this.db.query(`INSERT INTO subjects (${cols}) VALUES (${phs}) RETURNING id`, vals);
+    return { id: rows[0]?.id, ...data };
   }
 
   async updateSubject(id, data) {
@@ -37,7 +41,10 @@ class CommonModel {
     if (data.is_active !== undefined) updates.is_active = data.is_active;
 
     if (Object.keys(updates).length === 0) return;
-    await this.db.query('UPDATE subjects SET ? WHERE id = ?', [updates, id]);
+    const keys = Object.keys(updates);
+    const vals = Object.values(updates);
+    const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+    await this.db.query(`UPDATE subjects SET ${setClause} WHERE id = $${keys.length + 1}`, [...vals, id]);
   }
 
   async deleteSubject(id) {
@@ -48,15 +55,15 @@ class CommonModel {
     const [levels] = await this.db.query('SELECT COUNT(*) as count FROM levels WHERE subject_id = ?', [id]);
     const [students] = await this.db.query('SELECT COUNT(*) as count FROM students WHERE subject_id = ?', [id]);
     const [classes] = await this.db.query('SELECT COUNT(*) as count FROM classes WHERE subject_id = ?', [id]);
-    return (levels[0]?.count > 0) || (students[0]?.count > 0) || (classes[0]?.count > 0);
+    return (parseInt(levels[0]?.count) > 0) || (parseInt(students[0]?.count) > 0) || (parseInt(classes[0]?.count) > 0);
   }
 
   // ==================== LEVELS ====================
   async getLevels(subjectId = null) {
     let sql = `
-      SELECT l.*, s.name as subject_name 
-      FROM levels l 
-      LEFT JOIN subjects s ON l.subject_id = s.id 
+      SELECT l.*, s.name as subject_name
+      FROM levels l
+      LEFT JOIN subjects s ON l.subject_id = s.id
       WHERE 1=1
     `;
     const params = [];
@@ -71,9 +78,9 @@ class CommonModel {
 
   async getLevelById(id) {
     const [rows] = await this.db.query(`
-      SELECT l.*, s.name as subject_name 
-      FROM levels l 
-      LEFT JOIN subjects s ON l.subject_id = s.id 
+      SELECT l.*, s.name as subject_name
+      FROM levels l
+      LEFT JOIN subjects s ON l.subject_id = s.id
       WHERE l.id = ?
     `, [id]);
     return rows[0];
@@ -88,8 +95,12 @@ class CommonModel {
       sessions_required: data.sessions_required || 15,
       description: data.description || null
     };
-    const [result] = await this.db.query('INSERT INTO levels SET ?', [insertData]);
-    return { id: result.insertId, ...insertData };
+    const keys = Object.keys(insertData);
+    const vals = Object.values(insertData);
+    const cols = keys.join(', ');
+    const phs = keys.map((_, i) => `$${i + 1}`).join(', ');
+    const [rows] = await this.db.query(`INSERT INTO levels (${cols}) VALUES (${phs}) RETURNING id`, vals);
+    return { id: rows[0]?.id, ...insertData };
   }
 
   async updateLevel(id, data) {
@@ -102,7 +113,10 @@ class CommonModel {
     if (data.description !== undefined) updates.description = data.description;
 
     if (Object.keys(updates).length === 0) return;
-    await this.db.query('UPDATE levels SET ? WHERE id = ?', [updates, id]);
+    const keys = Object.keys(updates);
+    const vals = Object.values(updates);
+    const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+    await this.db.query(`UPDATE levels SET ${setClause} WHERE id = $${keys.length + 1}`, [...vals, id]);
   }
 
   async deleteLevel(id) {
@@ -112,7 +126,7 @@ class CommonModel {
   async levelHasData(id) {
     const [students] = await this.db.query('SELECT COUNT(*) as count FROM students WHERE level_id = ? OR current_level_id = ?', [id, id]);
     const [classes] = await this.db.query('SELECT COUNT(*) as count FROM classes WHERE level_id = ?', [id]);
-    return (students[0]?.count > 0) || (classes[0]?.count > 0);
+    return (parseInt(students[0]?.count) > 0) || (parseInt(classes[0]?.count) > 0);
   }
 
   // ==================== NOTIFICATIONS ====================
@@ -126,26 +140,26 @@ class CommonModel {
 
   async getUnreadCount(userId) {
     const [rows] = await this.db.query(
-      'SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0',
+      'SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = false',
       [userId]
     );
-    return rows[0]?.count || 0;
+    return parseInt(rows[0]?.count || 0);
   }
 
   async createNotification(userId, title, message, type = 'info', link = null) {
-    const [result] = await this.db.query(
-      'INSERT INTO notifications (user_id, title, message, type, link) VALUES (?, ?, ?, ?, ?)',
+    const [rows] = await this.db.query(
+      'INSERT INTO notifications (user_id, title, message, type, link) VALUES (?, ?, ?, ?, ?) RETURNING id',
       [userId, title, message, type, link]
     );
-    return { id: result.insertId };
+    return { id: rows[0]?.id };
   }
 
   async markNotificationRead(id) {
-    await this.db.query('UPDATE notifications SET is_read = 1 WHERE id = ?', [id]);
+    await this.db.query('UPDATE notifications SET is_read = true WHERE id = ?', [id]);
   }
 
   async markAllNotificationsRead(userId) {
-    await this.db.query('UPDATE notifications SET is_read = 1 WHERE user_id = ?', [userId]);
+    await this.db.query('UPDATE notifications SET is_read = true WHERE user_id = ?', [userId]);
   }
 }
 

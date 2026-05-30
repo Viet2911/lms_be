@@ -1,4 +1,4 @@
-import BaseModel from './BaseModel.js';
+﻿import BaseModel from './BaseModel.js';
 
 class PackageModel extends BaseModel {
   constructor() {
@@ -14,7 +14,7 @@ class PackageModel extends BaseModel {
              COALESCE(p.default_scholarship_months, 0) as default_scholarship_months
       FROM packages p
       LEFT JOIN branch_packages bp ON p.id = bp.package_id AND bp.branch_id = ?
-      WHERE p.is_active = 1
+      WHERE p.is_active = true
       ORDER BY p.months ASC
     `;
     const [rows] = await this.db.query(sql, [branchId || 0]);
@@ -64,7 +64,7 @@ class PackageModel extends BaseModel {
       FROM packages p
       CROSS JOIN branches b
       LEFT JOIN branch_packages bp ON p.id = bp.package_id AND b.id = bp.branch_id
-      WHERE p.is_active = 1 AND b.is_active = 1
+      WHERE p.is_active = true AND b.is_active = true
       ORDER BY b.id, p.months
     `);
     return rows;

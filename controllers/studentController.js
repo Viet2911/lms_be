@@ -512,7 +512,7 @@ export const reassignStudent = async (req, res, next) => {
     const student = await StudentModel.findById(id);
     if (!student) return res.status(404).json({ success: false, message: 'Không tìm thấy học sinh' });
 
-    await db.execute('UPDATE students SET sale_id = ?, updated_at = NOW() WHERE id = ?', [saleId, id]);
+    await db.query('UPDATE students SET sale_id = ?, updated_at = NOW() WHERE id = ?', [saleId, id]);
     res.json({ success: true, message: 'Đã chuyển học sinh thành công' });
   } catch (error) { next(error); }
 };

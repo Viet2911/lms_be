@@ -1,4 +1,4 @@
-import SaleReportModel from '../models/SaleReportModel.js';
+﻿import SaleReportModel from '../models/SaleReportModel.js';
 import KpiModel from '../models/KpiModel.js';
 import { getBranchFilter } from '../utils/branchHelper.js';
 
@@ -127,7 +127,7 @@ export const calculateAllReports = async (req, res, next) => {
       FROM users u
       JOIN roles r ON u.role_id = r.id
       LEFT JOIN user_branches ub ON u.id = ub.user_id
-      WHERE r.name = 'EC' AND u.is_active = 1
+      WHERE r.name = 'EC' AND u.is_active = true
     `);
 
     const results = [];
