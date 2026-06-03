@@ -57,38 +57,38 @@ router.delete('/users/:id', authenticate, authorize('users.delete'), user.remove
 router.get('/students', authenticate, authorize('students.view'), student.getAll);
 router.get('/students/stats', authenticate, authorize('students.view'), student.getStats);
 router.get('/students/:id', authenticate, authorize('students.view'), student.getById);
-router.post('/students', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), validators.createStudent, handleValidationErrors, student.create);
-router.put('/students/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), validators.updateStudent, handleValidationErrors, student.update);
-router.put('/students/:id/status', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.changeStatus);
-router.post('/students/:id/confirm-payment', authenticate, authorizeRole('ACCOUNTANT', 'EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.confirmPayment);
+router.post('/students', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), validators.createStudent, handleValidationErrors, student.create);
+router.put('/students/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), validators.updateStudent, handleValidationErrors, student.update);
+router.put('/students/:id/status', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), student.changeStatus);
+router.post('/students/:id/confirm-payment', authenticate, authorizeRole('ACCOUNTANT', 'EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), student.confirmPayment);
 router.delete('/students/:id', authenticate, authorizeRole('HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.remove);
 router.put('/students/:id/reassign', authenticate, authorizeRole('HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.reassignStudent);
 
 // Student documents
 router.get('/students/:id/documents', authenticate, authorize('students.view'), student.getDocuments);
-router.post('/students/:id/documents', authenticate, upload.single('file'), authorizeRole('ACCOUNTANT', 'EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.uploadDocument);
+router.post('/students/:id/documents', authenticate, upload.single('file'), authorizeRole('ACCOUNTANT', 'EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), student.uploadDocument);
 router.delete('/students/documents/:docId', authenticate, authorizeRole('ACCOUNTANT', 'ADMIN', 'GDV'), student.deleteDocument);
 
 // ENROLLMENT FORMS & QR
-router.get('/enrollment/:studentId/form', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), student.getEnrollmentForm);
+router.get('/enrollment/:studentId/form', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), student.getEnrollmentForm);
 router.get('/enrollment/:studentId/preview', authenticate, student.getEnrollmentPreview);
 
 // CLASSES
 // CLASSES
-const classViewRoles = ['EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
+const classViewRoles = ['EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'];
 router.get('/classes', authenticate, authorizeRole(...classViewRoles), cls.getAll);
 router.get('/classes/stats', authenticate, cls.getStats);
 router.get('/classes/:id', authenticate, authorizeRole(...classViewRoles), cls.getById);
 router.get('/classes/:id/students', authenticate, authorizeRole(...classViewRoles), cls.getStudents);
-router.post('/classes', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.create);
-router.put('/classes/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.update);
+router.post('/classes', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), cls.create);
+router.put('/classes/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), cls.update);
 router.delete('/classes/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.remove);
-router.post('/classes/:id/students', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.addStudent);
-router.delete('/classes/:id/students/:studentId', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.removeStudent);
-router.post('/classes/:id/promote', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), cls.promoteClass);
+router.post('/classes/:id/students', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), cls.addStudent);
+router.delete('/classes/:id/students/:studentId', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), cls.removeStudent);
+router.post('/classes/:id/promote', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), cls.promoteClass);
 
 // EXPERIENCE
-const ecRoles = ['EC', 'SALE', 'HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
+const ecRoles = ['EC', 'SALE', 'HOEC', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'];
 router.get('/experience', authenticate, authorizeRole(...ecRoles), experience.getAll);
 router.get('/experience/stats', authenticate, authorizeRole(...ecRoles), experience.getStats);
 router.get('/experience/month', authenticate, authorizeRole(...ecRoles), experience.getByMonth);
@@ -100,7 +100,7 @@ router.post('/experience/:id/convert', authenticate, authorizeRole(...ecRoles), 
 
 // TRIAL (Legacy - sẽ được thay thế bởi leads)
 // EC và TEACHER cũng có thể xem để checkin
-const trialViewRoles = ['EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
+const trialViewRoles = ['EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'];
 router.get('/trial-students', authenticate, authorizeRole(...trialViewRoles), trial.getAll);
 router.get('/trial-students/stats', authenticate, authorizeRole(...ecRoles), trial.getStats);
 router.get('/trial-students/:id', authenticate, authorizeRole(...trialViewRoles), trial.getById);
@@ -111,7 +111,7 @@ router.delete('/trial-students/:id', authenticate, authorizeRole(...ecRoles), tr
 
 // LEADS (Gộp trải nghiệm + học thử)
 // EC, SALE, HOEC, OM, QLCS, CHU, GDV, ADMIN được truy cập
-const leadRoles = ['EC', 'SALE', 'HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
+const leadRoles = ['EC', 'SALE', 'HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'];
 router.get('/leads', authenticate, authorizeRole(...leadRoles), lead.getAll);
 router.get('/leads/stats', authenticate, authorizeRole(...leadRoles), lead.getStats);
 router.get('/leads/month', authenticate, authorizeRole(...leadRoles), lead.getByMonth);
@@ -134,32 +134,32 @@ router.post('/leads/:id/convert', authenticate, authorizeRole(...leadRoles), lea
 router.post('/leads/:id/call-log', authenticate, authorizeRole(...leadRoles), lead.addCallLog);
 router.get('/leads/:id/call-logs', authenticate, authorizeRole(...leadRoles), lead.getCallLogs);
 router.put('/leads/:id/assign', authenticate, authorizeRole('HOEC', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), lead.assignLead);
-router.post('/sessions/:id/reschedule', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.reschedule);
+router.post('/sessions/:id/reschedule', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), session.reschedule);
 // SESSIONS
-router.get('/sessions', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.getAll);
+router.get('/sessions', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), session.getAll);
 router.get('/sessions/today', authenticate, session.getToday);
-router.get('/sessions/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.getById);
-router.post('/sessions', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.create);
-router.post('/sessions/generate', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), session.generate);
-router.put('/sessions/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER'), session.update);
+router.get('/sessions/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), session.getById);
+router.post('/sessions', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), session.create);
+router.post('/sessions/generate', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), session.generate);
+router.put('/sessions/:id', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER', 'TEACHER_PLUS'), session.update);
 router.delete('/sessions/:id', authenticate, authorizeRole('ADMIN', 'GDV'), session.remove);
 
 // ATTENDANCE
 router.get('/attendance/session/:sessionId', authenticate, attendance.getSessionAttendance);
 router.get('/attendance/session/:sessionId/students', authenticate, attendance.getStudentsForSession);
-router.post('/attendance/session/:sessionId/mark', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'HOEC', 'ADMIN'), attendance.markAttendance);
+router.post('/attendance/session/:sessionId/mark', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'HOEC', 'ADMIN', 'TEACHER_PLUS'), attendance.markAttendance);
 router.get('/attendance/class/:classId/report', authenticate, attendance.getClassReport);
 router.get('/attendance/warnings', authenticate, attendance.getStudentsWithWarnings);
-router.put('/attendance/:id', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'HOEC', 'ADMIN'), attendance.update);
+router.put('/attendance/:id', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'HOEC', 'ADMIN', 'TEACHER_PLUS'), attendance.update);
 
 // ASSIGNMENTS
-router.get('/assignments', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.getAll);
-router.get('/assignments/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.getById);
+router.get('/assignments', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), assignment.getAll);
+router.get('/assignments/:id', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'OM', 'CM', 'TEACHER', 'TA', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), assignment.getById);
 router.get('/assignments/:id/submissions', authenticate, assignment.getSubmissions);
-router.post('/assignments', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.create);
-router.put('/assignments/:id', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.update);
-router.delete('/assignments/:id', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), assignment.remove);
-router.post('/assignments/:submissionId/grade', authenticate, authorizeRole('TEACHER', 'CM', 'ADMIN'), assignment.grade);
+router.post('/assignments', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), assignment.create);
+router.put('/assignments/:id', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), assignment.update);
+router.delete('/assignments/:id', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), assignment.remove);
+router.post('/assignments/:submissionId/grade', authenticate, authorizeRole('TEACHER', 'CM', 'ADMIN', 'TEACHER_PLUS'), assignment.grade);
 
 // FILES (Cloudinary)
 router.get('/files', authenticate, file.getAll);
@@ -221,8 +221,8 @@ router.post('/sale-reports/calculate', authenticate, authorizeRole('GDV', 'ADMIN
 router.post('/sale-reports/calculate-all', authenticate, authorizeRole('GDV', 'ADMIN'), saleReport.calculateAllReports);
 
 // Renewals (Tái phí)
-router.get('/renewals/students', authenticate, authorizeRole('CM', 'OM', 'BM', 'HOEC', 'HOCM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), renewal.getStudentsForRenewal);
-router.post('/renewals', authenticate, authorizeRole('CM', 'OM', 'BM', 'HOEC', 'HOCM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), renewal.createRenewal);
+router.get('/renewals/students', authenticate, authorizeRole('CM', 'OM', 'BM', 'HOEC', 'HOCM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), renewal.getStudentsForRenewal);
+router.post('/renewals', authenticate, authorizeRole('CM', 'OM', 'BM', 'HOEC', 'HOCM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), renewal.createRenewal);
 router.get('/renewals/history/:studentId', authenticate, renewal.getRenewalHistory);
 router.get('/renewals/report', authenticate, authorizeRole('CM', 'OM', 'BM', 'HOEC', 'HOCM', 'QLCS', 'CHU', 'GDV', 'ADMIN'), renewal.getRenewalReport);
 
@@ -237,9 +237,9 @@ router.get('/dashboard/owner', authenticate, authorizeRole('CHU', 'ADMIN', 'GDV'
 router.get('/dashboard/qlcs', authenticate, authorizeRole('QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getOwner);
 router.get('/dashboard/hoec', authenticate, authorizeRole('HOEC', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getHoec);
 router.get('/dashboard/om', authenticate, authorizeRole('OM', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getOm);
-router.get('/dashboard/cm', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getCM);
-router.get('/dashboard/ec', authenticate, authorizeRole('EC', 'HOEC', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getSale);
-router.get('/dashboard/teacher', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getTeacher);
+router.get('/dashboard/cm', authenticate, authorizeRole('CM', 'OM', 'QLCS', 'CHU', 'ADMIN', 'GDV', 'TEACHER_PLUS'), dashboard.getCM);
+router.get('/dashboard/ec', authenticate, authorizeRole('EC', 'HOEC', 'QLCS', 'CHU', 'ADMIN', 'GDV', 'TEACHER_PLUS'), dashboard.getSale);
+router.get('/dashboard/teacher', authenticate, authorizeRole('TEACHER', 'CM', 'OM', 'QLCS', 'CHU', 'ADMIN', 'GDV', 'TEACHER_PLUS'), dashboard.getTeacher);
 router.get('/dashboard/ta', authenticate, authorizeRole('TA', 'CM', 'OM', 'QLCS', 'CHU', 'ADMIN', 'GDV'), dashboard.getTeacher);
 // Backward compatibility
 router.get('/dashboard/sale', authenticate, authorizeRole('EC', 'SALE'), dashboard.getSale);
@@ -334,7 +334,7 @@ router.get('/subordinates/tree/:userId?', authenticate, subordinate.getTeamTree)
 router.post('/subordinates/set-manager', authenticate, authorizeRole('GDV', 'ADMIN', 'CHU', 'QLCS'), subordinate.setManager);
 
 // TRIAL CHECKIN (EC & TEACHER)
-const trialCheckinRoles = ['EC', 'TEACHER', 'SALE', 'HOEC', 'OM', 'CM', 'QLCS', 'CHU', 'GDV', 'ADMIN'];
+const trialCheckinRoles = ['EC', 'TEACHER', 'SALE', 'HOEC', 'OM', 'CM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'];
 router.get('/trial/today', authenticate, authorizeRole(...trialCheckinRoles), trial.getTodayTrials);
 router.get('/trial/checkins', authenticate, authorizeRole(...trialCheckinRoles), trial.getTrialCheckins);
 router.post('/trial/:id/checkin', authenticate, authorizeRole(...trialCheckinRoles), trial.checkinTrial);
