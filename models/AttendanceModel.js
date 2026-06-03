@@ -134,7 +134,7 @@ class AttendanceModel extends BaseModel {
 
         if (trialStudentId && ['present', 'late'].includes(dbStatus)) {
           await conn.query(
-            `UPDATE trial_students SET sessions_attended = (
+            `UPDATE trial_students SET trial_sessions = (
               SELECT COUNT(*) FROM attendance WHERE trial_student_id = ? AND status IN ('present', 'late')
             ) WHERE id = ?`,
             [trialStudentId, trialStudentId]

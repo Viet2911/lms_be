@@ -6,7 +6,7 @@ class FileModel extends BaseModel {
     super('files');
   }
 
-  async findAllByUser({ userId, isAdmin, branchId, search, type, category, page = 1, limit = 50 } = {}) {
+  async findAllByUser({ userId, isAdmin, branchId, search, type, page = 1, limit = 50 } = {}) {
     let sql = `
       SELECT f.*, u.full_name as uploader_name
       FROM files f
@@ -27,17 +27,16 @@ class FileModel extends BaseModel {
       params.push(userId);
     }
     if (search) {
-      sql += ' AND (f.filename ILIKE ? OR f.description ILIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
+      sql += ' AND f.file_name ILIKE ?';
+      params.push(`%${search}%`);
     }
     if (type) {
-      if (type === 'pdf') sql += ` AND f.mime_type LIKE '%pdf%'`;
-      else if (type === 'image') sql += ` AND f.mime_type LIKE '%image%'`;
-      else if (type === 'doc') sql += ` AND (f.mime_type LIKE '%word%' OR f.mime_type LIKE '%document%')`;
+      if (type === 'pdf') sql += ` AND f.file_type LIKE '%pdf%'`;
+      else if (type === 'image') sql += ` AND f.file_type LIKE '%image%'`;
+      else if (type === 'doc') sql += ` AND (f.file_type LIKE '%word%' OR f.file_type LIKE '%document%')`;
     }
-    if (category) { sql += ' AND f.category = ?'; params.push(category); }
 
-    const countSql = sql.replace(/SELECT .* FROM/, 'SELECT COUNT(*) as total FROM');
+    const countSql = sql.replace('SELECT f.*, u.full_name as uploader_name', 'SELECT COUNT(*) as total');
     const [countRows] = await this.db.query(countSql, params);
     const total = parseInt(countRows[0]?.total || 0);
 
@@ -49,16 +48,17 @@ class FileModel extends BaseModel {
   }
 
   async saveFile(fileInfo, userId) {
-    const { filename, originalname, mimetype, size, path: fileUrl } = fileInfo;
-    const { description, category } = fileInfo;
+    const { filename, originalname, mimetype, size, path: fileUrl, public_id } = fileInfo;
+    // Cloudinary uses `filename` as the public_id
+    const publicId = public_id || filename || null;
 
     const [rows] = await this.db.query(
-      `INSERT INTO files (filename, original_name, mime_type, file_size, file_url, description, category, uploaded_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      [filename, originalname, mimetype, size, fileUrl, description || '', category || 'other', userId]
+      `INSERT INTO files (file_name, file_url, file_type, file_size, public_id, uploaded_by)
+       VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+      [originalname, fileUrl, mimetype, size, publicId, userId]
     );
 
-    return { id: rows[0]?.id, filename: originalname, file_url: fileUrl };
+    return { id: rows[0]?.id, file_name: originalname, file_url: fileUrl };
   }
 
   async deleteFile(id, userId, isAdmin) {

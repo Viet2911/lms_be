@@ -40,10 +40,10 @@ export const create = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Tạo gói học thành công',
-      data: { id: result.insertId }
+      data: { id: result.id }
     });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === '23505' || error.code === 'ER_DUP_ENTRY') {
       return res.status(400).json({ success: false, message: 'Mã gói học đã tồn tại' });
     }
     next(error);

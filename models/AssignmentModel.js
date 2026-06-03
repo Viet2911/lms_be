@@ -44,7 +44,7 @@ class AssignmentModel extends BaseModel {
     const [rows] = await this.db.query(
       `SELECT a.*, c.class_name, c.branch_id, b.name as branch_name, b.code as branch_code,
               s.session_number, TO_CHAR(s.session_date, 'YYYY-MM-DD') as session_date,
-              u.full_name as created_by_name, f.file_url, f.original_name as file_name
+              u.full_name as created_by_name, f.file_url, f.file_name
        FROM assignments a
        JOIN classes c ON a.class_id = c.id
        JOIN branches b ON c.branch_id = b.id

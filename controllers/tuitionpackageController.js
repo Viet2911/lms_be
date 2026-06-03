@@ -24,7 +24,7 @@ export const getById = async (req, res, next) => {
 export const create = async (req, res, next) => {
     try {
         const result = await TuitionPackageModel.create(req.body);
-        res.json({ success: true, message: 'Tạo gói học phí thành công', data: { id: result.insertId } });
+        res.json({ success: true, message: 'Tạo gói học phí thành công', data: { id: result.id } });
     } catch (error) { next(error); }
 };
 

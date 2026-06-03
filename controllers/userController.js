@@ -121,7 +121,7 @@ export const update = async (req, res, next) => {
     if (roleId || role_id) data.role_id = parseInt(roleId || role_id);
     if (isActive !== undefined || is_active !== undefined) {
       const val = isActive ?? is_active;
-      data.is_active = val === true || val === 1 || val === '1' ? 1 : 0;
+      data.is_active = val === true || val === 1 || val === '1' ? true : false;
     }
     if (manager_id !== undefined) data.manager_id = manager_id ? parseInt(manager_id) : null;
 
@@ -175,7 +175,7 @@ export const resetPassword = async (req, res, next) => {
 
 export const remove = async (req, res, next) => {
   try {
-    await UserModel.update(req.params.id, { is_active: 0 });
+    await UserModel.update(req.params.id, { is_active: false });
     res.json({ success: true, message: 'Xóa user thành công' });
   } catch (error) { next(error); }
 };

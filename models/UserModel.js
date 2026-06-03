@@ -67,7 +67,7 @@ class UserModel extends BaseModel {
 
     if (user.is_system_wide) {
       const [allBranches] = await this.db.query(
-        `SELECT id, code, name, 0 as is_primary FROM branches WHERE is_active = true ORDER BY name`
+        `SELECT id, code, name, false as is_primary FROM branches WHERE is_active = true ORDER BY name`
       );
       user.branches = allBranches;
       user.primaryBranch = allBranches[0] || null;
@@ -103,7 +103,7 @@ class UserModel extends BaseModel {
 
     if (user.is_system_wide) {
       const [allBranches] = await this.db.query(
-        `SELECT id, code, name, 0 as is_primary FROM branches WHERE is_active = true ORDER BY name`
+        `SELECT id, code, name, false as is_primary FROM branches WHERE is_active = true ORDER BY name`
       );
       user.branches = allBranches;
       user.branch_ids = allBranches.map(b => b.id);

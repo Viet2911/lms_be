@@ -69,7 +69,6 @@ export const create = async (req, res, next) => {
     const paidAmount = req.body.paidAmount || req.body.paid_amount;
     const depositAmount = req.body.depositAmount || req.body.deposit_amount;
     const feeTotal = req.body.feeTotal || req.body.fee_total || tuitionFee;
-    const promotionId = req.body.promotionId || req.body.promotion_id;
     const paymentStatus = req.body.paymentStatus || req.body.payment_status;
 
     if (!fullName || !parentName || !parentPhone) {
@@ -121,7 +120,6 @@ export const create = async (req, res, next) => {
       tuition_fee: tuitionFee ? parseFloat(tuitionFee) : 0,
       fee_total: feeTotal ? parseFloat(feeTotal) : (tuitionFee ? parseFloat(tuitionFee) : 0),
       discount_amount: discountAmount ? parseFloat(discountAmount) : 0,
-      promotion_id: promotionId ? parseInt(promotionId) : null,
       scholarship_months: scholarshipMonths ? parseInt(scholarshipMonths) : 0,
       gift_id: giftId ? parseInt(giftId) : null,
       gift_name: giftName || null,
@@ -131,7 +129,7 @@ export const create = async (req, res, next) => {
       payment_status: paymentStatus || 'pending',
       total_sessions: totalSessions,
       remaining_sessions: totalSessions,
-      fee_start_date: feeStartDate,
+      package_start_date: feeStartDate,
       fee_end_date: feeEndDate,
       sessions_per_week: 1,
       note: note || null,
@@ -399,7 +397,7 @@ export const uploadDocument = async (req, res, next) => {
 
     const [result] = await StudentModel.db.query(`
       INSERT INTO student_documents (student_id, doc_type, file_name, file_url, file_type, file_size, note, uploaded_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
     `, [
       id,
       doc_type || 'other',
@@ -414,7 +412,7 @@ export const uploadDocument = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Upload thành công',
-      data: { id: result.insertId, file_url: fileUrl }
+      data: { id: result[0]?.id, file_url: fileUrl }
     });
   } catch (error) { next(error); }
 };

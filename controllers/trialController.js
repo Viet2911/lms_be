@@ -48,16 +48,14 @@ export const create = async (req, res, next) => {
       code: TrialModel.generateCode(branchCode),
       experience_id: experienceId,
       full_name: exp.student_name,
-      birth_year: exp.student_birth_year,
-      parent_name: exp.customer_name,
+      phone: exp.customer_phone,
       parent_phone: exp.customer_phone,
-      parent_email: exp.customer_email,
       subject_id: exp.subject_id,
       level_id: exp.level_id,
       sale_id: req.user.id,
       status: 'active',
-      sessions_attended: 0,
-      max_sessions: 3
+      trial_sessions: 0,
+      max_trial_sessions: 3
     });
 
     await ExperienceModel.update(experienceId, { status: 'converted' });
@@ -125,7 +123,7 @@ export const checkinTrial = async (req, res, next) => {
     // Update trial sessions_attended if attended
     if (check_type === 'attended') {
       await pool.query(
-        'UPDATE trial_students SET sessions_attended = sessions_attended + 1 WHERE id = ?',
+        'UPDATE trial_students SET trial_sessions = trial_sessions + 1 WHERE id = ?',
         [id]
       );
     }

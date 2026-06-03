@@ -25,7 +25,7 @@ export const createSubject = async (req, res, next) => {
     const existing = await CommonModel.getSubjectByCode(code);
     if (existing) return res.status(400).json({ success: false, message: 'Mã môn học đã tồn tại' });
 
-    const subject = await CommonModel.createSubject({ name, code, description, is_active: 1 });
+    const subject = await CommonModel.createSubject({ name, code, description, is_active: true });
     res.status(201).json({ success: true, data: subject, message: 'Thêm môn học thành công' });
   } catch (error) { next(error); }
 };

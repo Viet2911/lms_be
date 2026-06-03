@@ -7,6 +7,7 @@ const memUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
 
 // Controllers
 import * as auth from '../controllers/authController.js';
+import * as parent from '../controllers/parentController.js';
 import * as user from '../controllers/userController.js';
 import * as branch from '../controllers/branchController.js';
 import * as student from '../controllers/studentController.js';
@@ -344,6 +345,23 @@ import { getAttendance, saveAttendance } from '../controllers/sessionController.
 // Sessions
 router.get('/sessions/:id/attendance', authenticate, getAttendance);
 router.post('/sessions/:id/attendance', authenticate, saveAttendance);
+
+// ── PARENT PORTAL (role = PH) ────────────────────────────────────────────────
+// Phụ huynh xem thông tin con
+router.get('/parent/children', authenticate, authorizeRole('PH'), parent.getMyChildren);
+router.get('/parent/children/:studentId/dashboard', authenticate, authorizeRole('PH'), parent.checkParentAccess, parent.getChildDashboard);
+router.get('/parent/children/:studentId', authenticate, authorizeRole('PH'), parent.checkParentAccess, parent.getChildDetail);
+router.get('/parent/children/:studentId/attendance', authenticate, authorizeRole('PH'), parent.checkParentAccess, parent.getChildAttendance);
+router.get('/parent/children/:studentId/sessions', authenticate, authorizeRole('PH'), parent.checkParentAccess, parent.getChildSessions);
+router.get('/parent/children/:studentId/assignments', authenticate, authorizeRole('PH'), parent.checkParentAccess, parent.getChildAssignments);
+router.get('/parent/children/:studentId/feedbacks', authenticate, authorizeRole('PH'), parent.checkParentAccess, parent.getChildFeedbacks);
+
+// ADMIN: Quản lý liên kết phụ huynh – học sinh
+const parentAdminRoles = ['ADMIN', 'GDV', 'QLCS', 'CHU', 'OM', 'CM'];
+router.get('/students/:studentId/parents', authenticate, authorizeRole(...parentAdminRoles), parent.getStudentParents);
+router.get('/users/:id/children', authenticate, authorizeRole(...parentAdminRoles), parent.getParentChildren);
+router.post('/parent-students', authenticate, authorizeRole(...parentAdminRoles), parent.linkParentStudent);
+router.delete('/parent-students/:id', authenticate, authorizeRole(...parentAdminRoles), parent.unlinkParentStudent);
 
 
 

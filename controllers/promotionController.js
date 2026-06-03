@@ -23,7 +23,7 @@ export const createProgram = async (req, res, next) => {
     try {
         const data = { ...req.body, created_by: req.user.id };
         const result = await PromotionModel.createProgram(data);
-        res.json({ success: true, message: 'Tạo chương trình KM thành công', data: { id: result.insertId } });
+        res.json({ success: true, message: 'Tạo chương trình KM thành công', data: { id: result.id } });
     } catch (error) { next(error); }
 };
 
@@ -68,7 +68,7 @@ export const getItemsInStock = async (req, res, next) => {
 export const createItem = async (req, res, next) => {
     try {
         const result = await PromotionModel.createItem(req.body);
-        res.json({ success: true, message: 'Tạo vật phẩm thành công', data: { id: result.insertId } });
+        res.json({ success: true, message: 'Tạo vật phẩm thành công', data: { id: result.id } });
     } catch (error) { next(error); }
 };
 
@@ -193,7 +193,7 @@ export const getAllScholarships = async (req, res, next) => {
 export const createScholarship = async (req, res, next) => {
     try {
         const result = await PromotionModel.createScholarship(req.body);
-        res.json({ success: true, message: 'Tạo học bổng thành công', data: { id: result.insertId } });
+        res.json({ success: true, message: 'Tạo học bổng thành công', data: { id: result.id } });
     } catch (error) { next(error); }
 };
 
@@ -251,7 +251,7 @@ export const addGift = async (req, res, next) => {
     try {
         const { leadId } = req.params;
         const result = await PromotionModel.addGift(leadId, req.body, req.user.id);
-        res.json({ success: true, message: 'Thêm quà tặng thành công', data: { id: result.insertId } });
+        res.json({ success: true, message: 'Thêm quà tặng thành công', data: { id: result.id } });
     } catch (error) { next(error); }
 };
 

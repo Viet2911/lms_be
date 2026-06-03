@@ -191,7 +191,7 @@ export const convertToStudent = async (req, res, next) => {
         parent_name, parent_phone, parent_job,
         tuition_fee, discount_amount, scholarship_months,
         status, note, assigned_ec, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) RETURNING id`,
       [
         exp.branch_id,
         studentCode,
@@ -211,13 +211,13 @@ export const convertToStudent = async (req, res, next) => {
       ]
     );
 
-    const studentId = studentResult.insertId;
+    const studentId = studentResult[0]?.id;
 
     // Create payment record if any payment
     if (actualRevenue > 0) {
       await db.query(
-        `INSERT INTO payments (student_id, amount, payment_type, status, note, created_by, created_at)
-         VALUES (?, ?, ?, 'completed', ?, ?, NOW())`,
+        `INSERT INTO payments (student_id, amount, payment_type, note, received_by, created_at)
+         VALUES (?, ?, ?, ?, ?, NOW())`,
         [studentId, actualRevenue, depositAmount > 0 ? 'deposit' : 'tuition', 'Thanh toán khi chuyển đổi', req.user.id]
       );
     }

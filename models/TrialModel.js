@@ -64,7 +64,7 @@ class TrialModel extends BaseModel {
     let sql = `SELECT COUNT(*) as total,
       COUNT(*) FILTER (WHERE status = 'active') as active,
       COUNT(*) FILTER (WHERE status = 'converted') as converted,
-      COUNT(*) FILTER (WHERE status = 'active' AND sessions_attended >= 2) as nearing_limit
+      COUNT(*) FILTER (WHERE status = 'active' AND trial_sessions >= 2) as nearing_limit
       FROM trial_students WHERE 1=1`;
     const params = [];
     if (branchId) { sql += ' AND branch_id = ?'; params.push(branchId); }

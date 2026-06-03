@@ -59,7 +59,8 @@ export const authenticate = async (req, res, next) => {
   } catch (error) {
     if (error.name === 'TokenExpiredError') return res.status(401).json({ success: false, message: 'Token hết hạn' });
     if (error.name === 'JsonWebTokenError') return res.status(401).json({ success: false, message: 'Token không hợp lệ' });
-    return res.status(500).json({ success: false, message: 'Lỗi xác thực' });
+    console.error('[Auth] Unexpected error:', error.message, error.stack);
+    return res.status(500).json({ success: false, message: 'Lỗi xác thực: ' + error.message });
   }
 };
 

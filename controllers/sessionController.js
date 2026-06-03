@@ -207,7 +207,7 @@ export const getAttendance = async (req, res) => {
     const [students] = await db.query(`
       SELECT 
         st.id as student_id, st.student_code, st.full_name, st.parent_phone as phone,
-        st.remaining_sessions, COALESCE(a.is_present, 0) as is_present, a.note
+        st.remaining_sessions, COALESCE(a.is_present, false) as is_present, a.note
       FROM class_students cs
       JOIN students st ON cs.student_id = st.id
       LEFT JOIN attendance_logs a ON a.session_id = ? AND a.student_id = st.id
@@ -243,7 +243,7 @@ export const saveAttendance = async (req, res) => {
       await connection.query(`
         INSERT INTO attendance_logs (session_id, student_id, is_present, note, checked_by, checked_at)
         VALUES (?, ?, ?, ?, ?, NOW())
-      `, [sessionId, att.student_id, att.is_present ? 1 : 0, att.note || null, req.user.id]);
+      `, [sessionId, att.student_id, att.is_present ? true : false, att.note || null, req.user.id]);
 
       if (att.is_present) {
         await connection.query(`

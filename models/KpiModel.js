@@ -47,17 +47,17 @@ class KpiModel extends BaseModel {
     if (existing.length > 0) {
       await this.db.query(
         `UPDATE ec_kpi_targets SET
-          target_revenue = ?, target_checkin = ?, target_conversion = ?
+          target_revenue = ?, target_leads = ?, target_conversions = ?
         WHERE id = ?`,
-        [data.target_revenue, data.target_checkin, data.target_conversion, existing[0].id]
+        [data.target_revenue, data.target_checkin || 0, data.target_conversion || 0, existing[0].id]
       );
       return { id: existing[0].id, updated: true };
     } else {
       const [rows] = await this.db.query(
         `INSERT INTO ec_kpi_targets
-          (ec_id, branch_id, target_month, target_revenue, target_checkin, target_conversion, created_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-        [ecId, branchId, targetMonth, data.target_revenue, data.target_checkin, data.target_conversion, createdBy]
+          (ec_id, branch_id, target_month, target_revenue, target_leads, target_conversions)
+        VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+        [ecId, branchId, targetMonth, data.target_revenue, data.target_checkin || 0, data.target_conversion || 0]
       );
       return { id: rows[0]?.id, created: true };
     }

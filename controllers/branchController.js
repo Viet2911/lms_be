@@ -88,7 +88,7 @@ export const update = async (req, res) => {
 export const remove = async (req, res) => {
   try {
     // Soft delete - set is_active = false
-    await BranchModel.update(req.params.id, { is_active: 0 });
+    await BranchModel.update(req.params.id, { is_active: false });
     res.json({ success: true, message: 'Đã vô hiệu hóa cơ sở' });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
