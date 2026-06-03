@@ -2,6 +2,7 @@ import UserModel from '../models/UserModel.js';
 import emailService from '../services/emailService.js';
 import bcrypt from 'bcryptjs';
 import db from '../config/database.js';
+import { invalidateAuthCache } from '../middleware/auth.js';
 
 export const getAll = async (req, res, next) => {
   try {
@@ -126,6 +127,7 @@ export const update = async (req, res, next) => {
     if (manager_id !== undefined) data.manager_id = manager_id ? parseInt(manager_id) : null;
 
     await UserModel.update(req.params.id, data);
+    invalidateAuthCache(req.params.id); // quyền thay đổi → clear cache ngay
 
     // Cập nhật branches nếu có
     if (branch_ids !== undefined) {
@@ -139,7 +141,8 @@ export const update = async (req, res, next) => {
 export const resetPassword = async (req, res, next) => {
   try {
     const { password, sendEmail } = req.body;
-    const newPassword = password || 'Abc@123456';
+    if (!password) return res.status(400).json({ success: false, message: 'Vui lòng cung cấp mật khẩu mới' });
+    const newPassword = password;
     await UserModel.updatePassword(req.params.id, newPassword);
 
     // Gửi email thông báo mật khẩu mới nếu được yêu cầu
@@ -176,6 +179,7 @@ export const resetPassword = async (req, res, next) => {
 export const remove = async (req, res, next) => {
   try {
     await UserModel.update(req.params.id, { is_active: false });
+    invalidateAuthCache(req.params.id); // user bị khóa → kick ngay
     res.json({ success: true, message: 'Xóa user thành công' });
   } catch (error) { next(error); }
 };

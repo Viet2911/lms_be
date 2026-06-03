@@ -31,7 +31,7 @@ export const getCheckins = async (req, res, next) => {
     `;
     const params = [];
 
-    if (!['GDV', 'ADMIN'].includes(req.user.role)) {
+    if (!['GDV', 'ADMIN'].includes(req.user.role_name)) {
       sql += ` AND (uc.user_id = ? OR uc.user_id IN (SELECT id FROM users WHERE manager_id = ?))`;
       params.push(req.user.id, req.user.id);
     }
@@ -135,7 +135,7 @@ export const getSubordinateSummary = async (req, res, next) => {
 
     let userFilter = '';
     const params = [dateFrom, dateTo];
-    if (!['GDV', 'ADMIN'].includes(req.user.role)) {
+    if (!['GDV', 'ADMIN'].includes(req.user.role_name)) {
       userFilter = 'AND u.manager_id = ?';
       params.push(req.user.id);
     }
@@ -190,7 +190,7 @@ export const exportCheckins = async (req, res, next) => {
     `;
     const params = [];
 
-    if (!['GDV', 'ADMIN'].includes(req.user.role)) {
+    if (!['GDV', 'ADMIN'].includes(req.user.role_name)) {
       sql += ` AND (uc.user_id = ? OR uc.user_id IN (SELECT id FROM users WHERE manager_id = ?))`;
       params.push(req.user.id, req.user.id);
     }
@@ -233,7 +233,7 @@ export const adminCheckin = async (req, res, next) => {
   try {
     const { user_id, checkin_date, checkin_time, checkout_time, branch_id, note } = req.body;
 
-    if (!['GDV', 'ADMIN', 'QLCS', 'CHU'].includes(req.user.role)) {
+    if (!['GDV', 'ADMIN', 'QLCS', 'CHU'].includes(req.user.role_name)) {
       const [user] = await pool.query('SELECT manager_id FROM users WHERE id = ?', [user_id]);
       if (!user[0] || user[0].manager_id !== req.user.id) {
         return res.status(403).json({ success: false, message: 'Không có quyền chỉnh sửa checkin của nhân viên này' });
@@ -297,7 +297,7 @@ export const getReport = async (req, res, next) => {
       sql += ' AND (u.full_name ILIKE ? OR u.username ILIKE ?)';
       params.push(`%${search}%`, `%${search}%`);
     }
-    if (!['GDV', 'ADMIN'].includes(req.user.role)) {
+    if (!['GDV', 'ADMIN'].includes(req.user.role_name)) {
       sql += ` AND (uc.user_id = ? OR uc.user_id IN (SELECT id FROM users WHERE manager_id = ?))`;
       params.push(req.user.id, req.user.id);
     }

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authenticate, authorize, authorizeRole } from '../middleware/auth.js';
+import { loginRateLimit } from '../middleware/rateLimits.js';
 import { upload } from '../config/cloudinary.js';
 import { validators, handleValidationErrors } from '../middleware/validate.js';
 import multer from 'multer';
@@ -26,7 +27,7 @@ import * as dashboard from '../controllers/dashboardController.js';
 const router = Router();
 
 // AUTH
-router.post('/auth/login', validators.login, handleValidationErrors, auth.login);
+router.post('/auth/login', loginRateLimit, validators.login, handleValidationErrors, auth.login);
 router.get('/auth/me', authenticate, auth.me);
 router.put('/auth/password', authenticate, validators.changePassword, handleValidationErrors, auth.changePassword);
 router.put('/auth/profile', authenticate, validators.updateProfile, handleValidationErrors, auth.updateProfile);
@@ -43,9 +44,9 @@ router.put('/branches/user/:userId', authenticate, authorizeRole('GDV', 'ADMIN')
 
 // USERS
 router.get('/users', authenticate, authorize('users.view'), user.getAll);
-router.get('/users/roles', authenticate, user.getRoles);
-router.get('/users/managers', authenticate, user.getManagers);
-router.get('/users/by-role/:role', authenticate, user.getByRole);
+router.get('/users/roles', authenticate, authorizeRole('ADMIN', 'GDV', 'QLCS', 'CHU', 'OM', 'CM', 'HOEC', 'TEACHER_PLUS'), user.getRoles);
+router.get('/users/managers', authenticate, authorizeRole('ADMIN', 'GDV', 'QLCS', 'CHU', 'OM', 'CM', 'HOEC'), user.getManagers);
+router.get('/users/by-role/:role', authenticate, authorizeRole('ADMIN', 'GDV', 'QLCS', 'CHU', 'OM', 'CM', 'HOEC', 'TEACHER_PLUS'), user.getByRole);
 router.get('/users/:id', authenticate, authorize('users.view'), user.getById);
 router.post('/users', authenticate, authorize('users.create'), validators.createUser, handleValidationErrors, user.create);
 router.put('/users/:id', authenticate, authorize('users.edit'), validators.updateUser, handleValidationErrors, user.update);
@@ -71,7 +72,7 @@ router.delete('/students/documents/:docId', authenticate, authorizeRole('ACCOUNT
 
 // ENROLLMENT FORMS & QR
 router.get('/enrollment/:studentId/form', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), student.getEnrollmentForm);
-router.get('/enrollment/:studentId/preview', authenticate, student.getEnrollmentPreview);
+router.get('/enrollment/:studentId/preview', authenticate, authorizeRole('EC', 'SALE', 'HOEC', 'CM', 'OM', 'QLCS', 'CHU', 'GDV', 'ADMIN', 'TEACHER_PLUS'), student.getEnrollmentPreview);
 
 // CLASSES
 // CLASSES

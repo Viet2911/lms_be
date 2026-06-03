@@ -14,7 +14,7 @@ const app = express();
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(compression());
 
-// Rate limit (bật khi production)
+// Rate limit toàn bộ API (chỉ production)
 if (process.env.NODE_ENV === 'production') {
   app.use(rateLimit({
     windowMs: 15 * 60 * 1000,
@@ -25,16 +25,17 @@ if (process.env.NODE_ENV === 'production') {
   }));
 }
 
+
 // ─── CORS ────────────────────────────────────────────────────────────────────
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
   : ['https://lms-fe-blue.vercel.app', 'http://localhost:3000', 'http://localhost:8081', 'http://127.0.0.1:5500'];
 
+const corsOriginSet = new Set(allowedOrigins);
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true); // mobile app, Postman, curl
-    if (allowedOrigins.some(a => origin.includes(a.replace(/https?:\/\//, '')))) return callback(null, true);
-    if (/vercel\.app|localhost|127\.0\.0\.1|10\.0\.2\.2/.test(origin)) return callback(null, true);
+    if (corsOriginSet.has(origin)) return callback(null, true);
     console.warn(`[CORS] Blocked: ${origin}`);
     return callback(new Error('Not allowed by CORS'));
   },
@@ -62,13 +63,16 @@ app.get('/', async (_req, res) => {
   } catch (e) {
     dbStatus = 'error';
   }
+  const isProduction = process.env.NODE_ENV === 'production';
   res.json({
     success: true,
     message: 'LMS API Server',
-    version: '3.0.0',
-    env: process.env.NODE_ENV,
-    db: dbStatus,
-    uptime: `${Math.floor(process.uptime())}s`,
+    ...(isProduction ? {} : {
+      version: '3.0.0',
+      env: process.env.NODE_ENV,
+      db: dbStatus,
+      uptime: `${Math.floor(process.uptime())}s`,
+    }),
   });
 });
 

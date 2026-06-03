@@ -23,9 +23,10 @@ const errorHandler = (err, req, res, next) => {
     return res.status(400).json({ success: false, message: 'Dữ liệu đã tồn tại' });
   }
 
+  const isProduction = process.env.NODE_ENV === 'production';
   res.status(err.statusCode || 500).json({
     success: false,
-    message: err.message || 'Lỗi server'
+    message: isProduction ? 'Lỗi server' : (err.message || 'Lỗi server'),
   });
 };
 
